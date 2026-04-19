@@ -35,7 +35,7 @@ describe("sendPaginatedEmbeds", () => {
   });
 
   test("sends multi-page with buttons and collector", async () => {
-    const collectorOn = mock(() => {});
+    const collectorOn = mock((_event: string, _handler: (...args: unknown[]) => unknown) => {});
     const interaction = mockInteraction({
       editReply: mock(() => ({
         createMessageComponentCollector: mock(() => ({

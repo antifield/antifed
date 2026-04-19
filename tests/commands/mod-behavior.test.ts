@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { createTestDb } from "../helpers/db";
+import { lastReplyDescription, type ReplyPayload } from "../helpers/mock-types";
 
 const testEnv = await createTestDb();
 await mock.module("~/db", () => ({ db: testEnv.db }));
@@ -56,7 +57,7 @@ function makeInteraction(opts: {
   kickImpl?: () => Promise<void>;
 }) {
   const moderatorId = opts.moderatorId ?? "mod-1";
-  const editReply = mock(async () => ({}));
+  const editReply = mock(async (_payload: ReplyPayload) => ({}));
   const targetMember = opts.targetInGuild
     ? makeGuildMember(opts.target.id, opts.targetRolePosition ?? 1)
     : null;
@@ -141,8 +142,7 @@ describe("/mod warn", () => {
     const rows = await testEnv.db.select().from(infractions).all();
     expect(rows).toHaveLength(1);
 
-    const embed = interaction.editReply.mock.calls.at(-1)![0].embeds[0];
-    expect(embed.data.description).toMatch(/Could not DM/);
+    expect(lastReplyDescription(interaction.editReply)).toMatch(/Could not DM/);
   });
 });
 
@@ -197,8 +197,7 @@ describe("/mod ban", () => {
     const rows = await testEnv.db.select().from(infractions).all();
     expect(rows).toHaveLength(0);
 
-    const embed = interaction.editReply.mock.calls.at(-1)![0].embeds[0];
-    expect(embed.data.description).toMatch(/Failed to ban/i);
+    expect(lastReplyDescription(interaction.editReply)).toMatch(/Failed to ban/i);
   });
 
   test("blocks banning the server owner when they've left the guild", async () => {
@@ -215,8 +214,7 @@ describe("/mod ban", () => {
     await modCommand.execute(interaction as any);
 
     expect(banImpl).not.toHaveBeenCalled();
-    const embed = interaction.editReply.mock.calls.at(-1)![0].embeds[0];
-    expect(embed.data.description).toMatch(/server owner/i);
+    expect(lastReplyDescription(interaction.editReply)).toMatch(/server owner/i);
   });
 
   test("blocks banning a member whose role is >= moderator's", async () => {
@@ -235,8 +233,7 @@ describe("/mod ban", () => {
     await modCommand.execute(interaction as any);
 
     expect(banImpl).not.toHaveBeenCalled();
-    const embed = interaction.editReply.mock.calls.at(-1)![0].embeds[0];
-    expect(embed.data.description).toMatch(/Cannot moderate/i);
+    expect(lastReplyDescription(interaction.editReply)).toMatch(/Cannot moderate/i);
   });
 });
 
@@ -251,8 +248,7 @@ describe("/mod kick", () => {
 
     await modCommand.execute(interaction as any);
 
-    const embed = interaction.editReply.mock.calls.at(-1)![0].embeds[0];
-    expect(embed.data.description).toMatch(/not in the server/i);
+    expect(lastReplyDescription(interaction.editReply)).toMatch(/not in the server/i);
     const rows = await testEnv.db.select().from(infractions).all();
     expect(rows).toHaveLength(0);
   });
