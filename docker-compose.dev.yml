@@ -1,0 +1,15 @@
+services:
+  libsql:
+    image: ghcr.io/tursodatabase/libsql-server:latest
+    container_name: antifed-libsql
+    ports:
+      - "9120:8080"
+      - "9122:5001"
+    environment:
+      - SQLD_NODE=primary
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
