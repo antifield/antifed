@@ -288,7 +288,7 @@ describe("/mod kick", () => {
     expect(rows).toHaveLength(0);
   });
 
-  test("DMs only after a successful kick", async () => {
+  test("DMs before kicking so the user still shares the guild", async () => {
     const target = makeUser({ id: "target-k" });
     const order: string[] = [];
     target.send = mock(async () => {
@@ -309,9 +309,70 @@ describe("/mod kick", () => {
 
     await modCommand.execute(interaction as any);
 
-    expect(order).toEqual(["kick", "dm"]);
+    expect(order).toEqual(["dm", "kick"]);
     const rows = await testEnv.db.select().from(infractions).all();
     expect(rows[0]?.type).toBe("kick");
+  });
+
+  test("logs DM outcome when kick fails after notifying", async () => {
+    const target = makeUser({ id: "target-kick-fail" });
+    target.send = mock(async () => {}) as any;
+
+    const { interaction } = makeInteraction({
+      sub: "kick",
+      target,
+      targetInGuild: true,
+      targetRolePosition: 1,
+      moderatorPosition: 10,
+      kickImpl: async () => {
+        throw new Error("Missing Permissions");
+      },
+    });
+
+    await modCommand.execute(interaction as any);
+
+    expect(target.send).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "kick",
+        dmStatus: "sent",
+        targetId: "target-kick-fail",
+      }),
+    );
+    const rows = await testEnv.db.select().from(infractions).all();
+    expect(rows).toHaveLength(0);
+    expect(lastReplyDescription(interaction.editReply)).toMatch(/Failed to kick/i);
+  });
+});
+
+describe("/mod softban", () => {
+  test("DMs before softbanning so the user still shares the guild", async () => {
+    const target = makeUser({ id: "target-softban" });
+    const order: string[] = [];
+
+    target.send = mock(async () => {
+      order.push("dm");
+    }) as any;
+
+    const { interaction } = makeInteraction({
+      sub: "softban",
+      target,
+      targetInGuild: true,
+      targetRolePosition: 1,
+      moderatorPosition: 10,
+      banImpl: async () => {
+        order.push("ban");
+      },
+      unbanImpl: async () => {
+        order.push("unban");
+      },
+    });
+
+    await modCommand.execute(interaction as any);
+
+    expect(order).toEqual(["dm", "ban", "unban"]);
+    const rows = await testEnv.db.select().from(infractions).all();
+    expect(rows[0]?.type).toBe("softban");
   });
 });
 

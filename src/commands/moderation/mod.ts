@@ -24,6 +24,7 @@ const AUDIT_FAILED_MESSAGE =
 const DM_SKIPPED_MESSAGE = "\n*DM skipped by moderator.*";
 
 type InfractionType = "ban" | "warn" | "kick" | "softban";
+type DmStatus = "sent" | "failed" | "skipped";
 
 export default {
   data: new SlashCommandBuilder()
@@ -111,20 +112,51 @@ async function trySendDm(user: User, embed: ReturnType<typeof dmEmbed>): Promise
   }
 }
 
-type DmStatus = "sent" | "failed" | "skipped";
-
-async function sendDmUnlessSkipped(
-  interaction: ChatInputCommandInteraction,
-  user: User,
-  embed: ReturnType<typeof dmEmbed>,
-): Promise<DmStatus> {
+async function sendModerationDm(params: {
+  interaction: ChatInputCommandInteraction;
+  targetUser: User;
+  title: string;
+  reason: string;
+  color: number;
+  guild: Guild;
+}): Promise<DmStatus> {
+  const { interaction, targetUser, title, reason, color, guild } = params;
   if (interaction.options.getBoolean("no_dm") ?? false) return "skipped";
-  return (await trySendDm(user, embed)) ? "sent" : "failed";
+  return (await trySendDm(
+    targetUser,
+    dmEmbed({
+      title,
+      description: reason,
+      color,
+      serverName: guild.name,
+    }),
+  ))
+    ? "sent"
+    : "failed";
 }
 
 function addDmStatus(description: string[], dmStatus: DmStatus) {
   if (dmStatus === "failed") description.push(DM_FAILED_MESSAGE);
   if (dmStatus === "skipped") description.push(DM_SKIPPED_MESSAGE);
+}
+
+function logModerationActionError(params: {
+  action: InfractionType;
+  targetId: string;
+  moderatorId: string;
+  error: unknown;
+  dmStatus?: DmStatus;
+}) {
+  log.error({
+    action: params.action,
+    targetId: params.targetId,
+    moderatorId: params.moderatorId,
+    ...(params.dmStatus ? { dmStatus: params.dmStatus } : {}),
+    error:
+      params.error instanceof Error
+        ? (params.error.stack ?? params.error.message)
+        : String(params.error),
+  });
 }
 
 function isOwnerWhenAbsent(guild: Guild, targetUser: User): boolean {
@@ -180,16 +212,14 @@ async function handleWarn(interaction: ChatInputCommandInteraction) {
   // Warn has no Discord-side action, so DM and DB are the two writes; order them
   // so a DM failure doesn't skip the audit record, and a DB failure doesn't skip
   // the user-facing notification.
-  const dmStatus = await sendDmUnlessSkipped(
+  const dmStatus = await sendModerationDm({
     interaction,
     targetUser,
-    dmEmbed({
-      title: "You have been warned",
-      description: reason,
-      color: Colors.Warn,
-      serverName: guild.name,
-    }),
-  );
+    title: "You have been warned",
+    reason,
+    color: Colors.Warn,
+    guild,
+  });
 
   const persisted = await recordInfraction({
     targetUser,
@@ -244,32 +274,30 @@ async function handleKick(interaction: ChatInputCommandInteraction) {
     return;
   }
 
+  const dmStatus = await sendModerationDm({
+    interaction,
+    targetUser,
+    title: "You have been kicked",
+    reason,
+    color: Colors.Ban,
+    guild,
+  });
+
   try {
     await targetMember.kick(`${reason} | ${interaction.user.username}`);
   } catch (err) {
-    log.error({
+    logModerationActionError({
       action: "kick",
       targetId: targetUser.id,
       moderatorId: interaction.user.id,
-      error: err instanceof Error ? (err.stack ?? err.message) : String(err),
+      dmStatus,
+      error: err,
     });
     await interaction.editReply({
       embeds: [errorEmbed("Failed to kick. Check bot permissions and try again.")],
     });
     return;
   }
-
-  // DM AFTER the action so we never falsely tell a user they've been kicked.
-  const dmStatus = await sendDmUnlessSkipped(
-    interaction,
-    targetUser,
-    dmEmbed({
-      title: "You have been kicked",
-      description: reason,
-      color: Colors.Ban,
-      serverName: guild.name,
-    }),
-  );
 
   const persisted = await recordInfraction({
     targetUser,
@@ -324,6 +352,15 @@ async function handleSoftban(interaction: ChatInputCommandInteraction) {
     return;
   }
 
+  const dmStatus = await sendModerationDm({
+    interaction,
+    targetUser,
+    title: "You have been removed",
+    reason,
+    color: Colors.Ban,
+    guild,
+  });
+
   try {
     await guild.members.ban(targetUser, {
       reason: `Softban | ${reason} | ${interaction.user.username}`,
@@ -331,11 +368,12 @@ async function handleSoftban(interaction: ChatInputCommandInteraction) {
     });
     await guild.members.unban(targetUser, "Softban - immediate unban");
   } catch (err) {
-    log.error({
+    logModerationActionError({
       action: "softban",
       targetId: targetUser.id,
       moderatorId: interaction.user.id,
-      error: err instanceof Error ? (err.stack ?? err.message) : String(err),
+      dmStatus,
+      error: err,
     });
     await interaction.editReply({
       embeds: [
@@ -344,17 +382,6 @@ async function handleSoftban(interaction: ChatInputCommandInteraction) {
     });
     return;
   }
-
-  const dmStatus = await sendDmUnlessSkipped(
-    interaction,
-    targetUser,
-    dmEmbed({
-      title: "You have been removed",
-      description: reason,
-      color: Colors.Ban,
-      serverName: guild.name,
-    }),
-  );
 
   const persisted = await recordInfraction({
     targetUser,
@@ -411,16 +438,14 @@ async function handleBan(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const dmStatus = await sendDmUnlessSkipped(
+  const dmStatus = await sendModerationDm({
     interaction,
     targetUser,
-    dmEmbed({
-      title: "You have been banned",
-      description: reason,
-      color: Colors.Ban,
-      serverName: guild.name,
-    }),
-  );
+    title: "You have been banned",
+    reason,
+    color: Colors.Ban,
+    guild,
+  });
 
   try {
     await guild.members.ban(targetUser, {
@@ -428,12 +453,12 @@ async function handleBan(interaction: ChatInputCommandInteraction) {
       deleteMessageSeconds: deleteMessages * 86400,
     });
   } catch (err) {
-    log.error({
+    logModerationActionError({
       action: "ban",
       targetId: targetUser.id,
       moderatorId: interaction.user.id,
       dmStatus,
-      error: err instanceof Error ? (err.stack ?? err.message) : String(err),
+      error: err,
     });
     await interaction.editReply({
       embeds: [errorEmbed("Failed to ban. Check bot permissions and try again.")],
