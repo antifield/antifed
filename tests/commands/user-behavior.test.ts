@@ -4,9 +4,6 @@ import { createTestDb } from "../helpers/db";
 
 const testEnv = await createTestDb();
 await mock.module("~/db", () => ({ db: testEnv.db }));
-await mock.module("~/lib/pagination", () => ({
-  sendPaginatedEmbeds: mock(async () => undefined),
-}));
 
 const { infractions, notes, users } = await import("../../src/db/schema");
 const { default: userCommand } = await import("../../src/commands/moderation/user");

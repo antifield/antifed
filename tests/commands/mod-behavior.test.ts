@@ -6,11 +6,14 @@ import { lastReplyDescription, type ReplyPayload } from "../helpers/mock-types";
 const testEnv = await createTestDb();
 await mock.module("~/db", () => ({ db: testEnv.db }));
 await mock.module("~/lib/mod-log", () => ({ sendModLog: mock(async () => undefined) }));
+const logError = mock((_entry: unknown) => undefined);
+await mock.module("~/lib/logger", () => ({ log: { error: logError } }));
 
 const { infractions, users } = await import("../../src/db/schema");
 const { default: modCommand } = await import("../../src/commands/moderation/mod");
 
 afterAll(() => {
+  mock.restore();
   testEnv.client.close();
 });
 
@@ -55,6 +58,7 @@ function makeInteraction(opts: {
   banImpl?: (user: { id: string }, options?: unknown) => Promise<void>;
   unbanImpl?: (id: string, reason?: string) => Promise<void>;
   kickImpl?: () => Promise<void>;
+  noDm?: boolean;
 }) {
   const moderatorId = opts.moderatorId ?? "mod-1";
   const editReply = mock(async (_payload: ReplyPayload) => ({}));
@@ -84,7 +88,11 @@ function makeInteraction(opts: {
         getInteger: (name: string, _req?: boolean) =>
           name === "delete_messages" ? (opts.deleteMessages ?? null) : null,
         getBoolean: (name: string, _req?: boolean) =>
-          name === "silent" ? (opts.silent ?? false) : null,
+          name === "silent"
+            ? (opts.silent ?? false)
+            : name === "no_dm"
+              ? (opts.noDm ?? false)
+              : null,
       },
       user: {
         id: moderatorId,
@@ -116,6 +124,7 @@ function makeInteraction(opts: {
 
 beforeEach(async () => {
   await testEnv.client.batch(["DELETE FROM infractions", "DELETE FROM users"], "write");
+  logError.mockClear();
 });
 
 describe("/mod warn", () => {
@@ -194,10 +203,36 @@ describe("/mod ban", () => {
     await modCommand.execute(interaction as any);
 
     expect(target.send).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "ban",
+        dmStatus: "sent",
+        targetId: "target-ban-fail",
+      }),
+    );
     const rows = await testEnv.db.select().from(infractions).all();
     expect(rows).toHaveLength(0);
 
     expect(lastReplyDescription(interaction.editReply)).toMatch(/Failed to ban/i);
+  });
+
+  test("can skip the pre-ban DM", async () => {
+    const target = makeUser({ id: "target-ban-no-dm" });
+    const { interaction } = makeInteraction({
+      sub: "ban",
+      target,
+      targetInGuild: true,
+      targetRolePosition: 1,
+      moderatorPosition: 10,
+      noDm: true,
+    });
+
+    await modCommand.execute(interaction as any);
+
+    expect(target.send).not.toHaveBeenCalled();
+    expect(lastReplyDescription(interaction.editReply)).toMatch(/DM skipped/i);
+    const rows = await testEnv.db.select().from(infractions).all();
+    expect(rows[0]?.type).toBe("ban");
   });
 
   test("blocks banning the server owner when they've left the guild", async () => {

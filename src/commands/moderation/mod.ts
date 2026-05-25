@@ -18,8 +18,10 @@ import { sendModLog } from "~/lib/mod-log";
 import type { Command } from "~/types";
 
 const SILENT_DESC = "Hide the confirmation from the channel (mod-log still fires)";
+const NO_DM_DESC = "Do not DM the user about this action";
 const AUDIT_FAILED_MESSAGE =
   "\n*Action completed, but writing the audit record failed — please tell a dev.*";
+const DM_SKIPPED_MESSAGE = "\n*DM skipped by moderator.*";
 
 type InfractionType = "ban" | "warn" | "kick" | "softban";
 
@@ -37,6 +39,7 @@ export default {
         .addStringOption((o) =>
           o.setName("reason").setDescription("Reason for the warning").setRequired(true),
         )
+        .addBooleanOption((o) => o.setName("no_dm").setDescription(NO_DM_DESC))
         .addBooleanOption((o) => o.setName("silent").setDescription(SILENT_DESC)),
     )
     .addSubcommand((sub) =>
@@ -49,6 +52,7 @@ export default {
         .addStringOption((o) =>
           o.setName("reason").setDescription("Reason for the kick").setRequired(true),
         )
+        .addBooleanOption((o) => o.setName("no_dm").setDescription(NO_DM_DESC))
         .addBooleanOption((o) => o.setName("silent").setDescription(SILENT_DESC)),
     )
     .addSubcommand((sub) =>
@@ -61,6 +65,7 @@ export default {
         .addStringOption((o) =>
           o.setName("reason").setDescription("Reason for the softban").setRequired(true),
         )
+        .addBooleanOption((o) => o.setName("no_dm").setDescription(NO_DM_DESC))
         .addBooleanOption((o) => o.setName("silent").setDescription(SILENT_DESC)),
     )
     .addSubcommand((sub) =>
@@ -78,6 +83,7 @@ export default {
             .setMinValue(0)
             .setMaxValue(7),
         )
+        .addBooleanOption((o) => o.setName("no_dm").setDescription(NO_DM_DESC))
         .addBooleanOption((o) => o.setName("silent").setDescription(SILENT_DESC)),
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
@@ -103,6 +109,22 @@ async function trySendDm(user: User, embed: ReturnType<typeof dmEmbed>): Promise
   } catch {
     return false;
   }
+}
+
+type DmStatus = "sent" | "failed" | "skipped";
+
+async function sendDmUnlessSkipped(
+  interaction: ChatInputCommandInteraction,
+  user: User,
+  embed: ReturnType<typeof dmEmbed>,
+): Promise<DmStatus> {
+  if (interaction.options.getBoolean("no_dm") ?? false) return "skipped";
+  return (await trySendDm(user, embed)) ? "sent" : "failed";
+}
+
+function addDmStatus(description: string[], dmStatus: DmStatus) {
+  if (dmStatus === "failed") description.push(DM_FAILED_MESSAGE);
+  if (dmStatus === "skipped") description.push(DM_SKIPPED_MESSAGE);
 }
 
 function isOwnerWhenAbsent(guild: Guild, targetUser: User): boolean {
@@ -158,7 +180,8 @@ async function handleWarn(interaction: ChatInputCommandInteraction) {
   // Warn has no Discord-side action, so DM and DB are the two writes; order them
   // so a DM failure doesn't skip the audit record, and a DB failure doesn't skip
   // the user-facing notification.
-  const dmSent = await trySendDm(
+  const dmStatus = await sendDmUnlessSkipped(
+    interaction,
     targetUser,
     dmEmbed({
       title: "You have been warned",
@@ -176,7 +199,7 @@ async function handleWarn(interaction: ChatInputCommandInteraction) {
   });
 
   const description = [`**${targetUser.username}** has been warned.`];
-  if (!dmSent) description.push(DM_FAILED_MESSAGE);
+  addDmStatus(description, dmStatus);
   if (!persisted) description.push(AUDIT_FAILED_MESSAGE);
 
   const baseOpts = {
@@ -237,7 +260,8 @@ async function handleKick(interaction: ChatInputCommandInteraction) {
   }
 
   // DM AFTER the action so we never falsely tell a user they've been kicked.
-  const dmSent = await trySendDm(
+  const dmStatus = await sendDmUnlessSkipped(
+    interaction,
     targetUser,
     dmEmbed({
       title: "You have been kicked",
@@ -255,7 +279,7 @@ async function handleKick(interaction: ChatInputCommandInteraction) {
   });
 
   const description = [`**${targetUser.username}** has been kicked.`];
-  if (!dmSent) description.push(DM_FAILED_MESSAGE);
+  addDmStatus(description, dmStatus);
   if (!persisted) description.push(AUDIT_FAILED_MESSAGE);
 
   const baseOpts = {
@@ -321,7 +345,8 @@ async function handleSoftban(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const dmSent = await trySendDm(
+  const dmStatus = await sendDmUnlessSkipped(
+    interaction,
     targetUser,
     dmEmbed({
       title: "You have been removed",
@@ -339,7 +364,7 @@ async function handleSoftban(interaction: ChatInputCommandInteraction) {
   });
 
   const description = [`**${targetUser.username}** has been softbanned (messages purged).`];
-  if (!dmSent) description.push(DM_FAILED_MESSAGE);
+  addDmStatus(description, dmStatus);
   if (!persisted) description.push(AUDIT_FAILED_MESSAGE);
 
   const baseOpts = {
@@ -386,7 +411,8 @@ async function handleBan(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const dmSent = await trySendDm(
+  const dmStatus = await sendDmUnlessSkipped(
+    interaction,
     targetUser,
     dmEmbed({
       title: "You have been banned",
@@ -406,6 +432,7 @@ async function handleBan(interaction: ChatInputCommandInteraction) {
       action: "ban",
       targetId: targetUser.id,
       moderatorId: interaction.user.id,
+      dmStatus,
       error: err instanceof Error ? (err.stack ?? err.message) : String(err),
     });
     await interaction.editReply({
@@ -422,7 +449,7 @@ async function handleBan(interaction: ChatInputCommandInteraction) {
   });
 
   const description = [`**${targetUser.username}** has been banned.`];
-  if (!dmSent) description.push(DM_FAILED_MESSAGE);
+  addDmStatus(description, dmStatus);
   if (!persisted) description.push(AUDIT_FAILED_MESSAGE);
 
   const baseOpts = {
