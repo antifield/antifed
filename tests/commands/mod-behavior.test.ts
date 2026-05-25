@@ -6,11 +6,14 @@ import { lastReplyDescription, type ReplyPayload } from "../helpers/mock-types";
 const testEnv = await createTestDb();
 await mock.module("~/db", () => ({ db: testEnv.db }));
 await mock.module("~/lib/mod-log", () => ({ sendModLog: mock(async () => undefined) }));
+const logError = mock((_entry: unknown) => undefined);
+await mock.module("~/lib/logger", () => ({ log: { error: logError } }));
 
 const { infractions, users } = await import("../../src/db/schema");
 const { default: modCommand } = await import("../../src/commands/moderation/mod");
 
 afterAll(() => {
+  mock.restore();
   testEnv.client.close();
 });
 
@@ -55,6 +58,7 @@ function makeInteraction(opts: {
   banImpl?: (user: { id: string }, options?: unknown) => Promise<void>;
   unbanImpl?: (id: string, reason?: string) => Promise<void>;
   kickImpl?: () => Promise<void>;
+  noDm?: boolean;
 }) {
   const moderatorId = opts.moderatorId ?? "mod-1";
   const editReply = mock(async (_payload: ReplyPayload) => ({}));
@@ -84,7 +88,11 @@ function makeInteraction(opts: {
         getInteger: (name: string, _req?: boolean) =>
           name === "delete_messages" ? (opts.deleteMessages ?? null) : null,
         getBoolean: (name: string, _req?: boolean) =>
-          name === "silent" ? (opts.silent ?? false) : null,
+          name === "silent"
+            ? (opts.silent ?? false)
+            : name === "no_dm"
+              ? (opts.noDm ?? false)
+              : null,
       },
       user: {
         id: moderatorId,
@@ -116,6 +124,7 @@ function makeInteraction(opts: {
 
 beforeEach(async () => {
   await testEnv.client.batch(["DELETE FROM infractions", "DELETE FROM users"], "write");
+  logError.mockClear();
 });
 
 describe("/mod warn", () => {
@@ -147,7 +156,7 @@ describe("/mod warn", () => {
 });
 
 describe("/mod ban", () => {
-  test("DMs only AFTER a successful ban", async () => {
+  test("DMs before banning so the user still shares the guild", async () => {
     const target = makeUser({ id: "target-ban" });
     const callOrder: string[] = [];
 
@@ -169,13 +178,13 @@ describe("/mod ban", () => {
 
     await modCommand.execute(interaction as any);
 
-    expect(callOrder).toEqual(["ban", "dm"]);
+    expect(callOrder).toEqual(["dm", "ban"]);
     const rows = await testEnv.db.select().from(infractions).all();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.type).toBe("ban");
   });
 
-  test("does NOT DM or record when the ban call fails", async () => {
+  test("does not record when the ban call fails", async () => {
     const target = makeUser({ id: "target-ban-fail" });
     target.send = mock(async () => {}) as any;
     const banImpl = mock(async () => {
@@ -193,11 +202,37 @@ describe("/mod ban", () => {
 
     await modCommand.execute(interaction as any);
 
-    expect(target.send).not.toHaveBeenCalled();
+    expect(target.send).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "ban",
+        dmStatus: "sent",
+        targetId: "target-ban-fail",
+      }),
+    );
     const rows = await testEnv.db.select().from(infractions).all();
     expect(rows).toHaveLength(0);
 
     expect(lastReplyDescription(interaction.editReply)).toMatch(/Failed to ban/i);
+  });
+
+  test("can skip the pre-ban DM", async () => {
+    const target = makeUser({ id: "target-ban-no-dm" });
+    const { interaction } = makeInteraction({
+      sub: "ban",
+      target,
+      targetInGuild: true,
+      targetRolePosition: 1,
+      moderatorPosition: 10,
+      noDm: true,
+    });
+
+    await modCommand.execute(interaction as any);
+
+    expect(target.send).not.toHaveBeenCalled();
+    expect(lastReplyDescription(interaction.editReply)).toMatch(/DM skipped/i);
+    const rows = await testEnv.db.select().from(infractions).all();
+    expect(rows[0]?.type).toBe("ban");
   });
 
   test("blocks banning the server owner when they've left the guild", async () => {
@@ -253,7 +288,7 @@ describe("/mod kick", () => {
     expect(rows).toHaveLength(0);
   });
 
-  test("DMs only after a successful kick", async () => {
+  test("DMs before kicking so the user still shares the guild", async () => {
     const target = makeUser({ id: "target-k" });
     const order: string[] = [];
     target.send = mock(async () => {
@@ -274,9 +309,70 @@ describe("/mod kick", () => {
 
     await modCommand.execute(interaction as any);
 
-    expect(order).toEqual(["kick", "dm"]);
+    expect(order).toEqual(["dm", "kick"]);
     const rows = await testEnv.db.select().from(infractions).all();
     expect(rows[0]?.type).toBe("kick");
+  });
+
+  test("logs DM outcome when kick fails after notifying", async () => {
+    const target = makeUser({ id: "target-kick-fail" });
+    target.send = mock(async () => {}) as any;
+
+    const { interaction } = makeInteraction({
+      sub: "kick",
+      target,
+      targetInGuild: true,
+      targetRolePosition: 1,
+      moderatorPosition: 10,
+      kickImpl: async () => {
+        throw new Error("Missing Permissions");
+      },
+    });
+
+    await modCommand.execute(interaction as any);
+
+    expect(target.send).toHaveBeenCalledTimes(1);
+    expect(logError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "kick",
+        dmStatus: "sent",
+        targetId: "target-kick-fail",
+      }),
+    );
+    const rows = await testEnv.db.select().from(infractions).all();
+    expect(rows).toHaveLength(0);
+    expect(lastReplyDescription(interaction.editReply)).toMatch(/Failed to kick/i);
+  });
+});
+
+describe("/mod softban", () => {
+  test("DMs before softbanning so the user still shares the guild", async () => {
+    const target = makeUser({ id: "target-softban" });
+    const order: string[] = [];
+
+    target.send = mock(async () => {
+      order.push("dm");
+    }) as any;
+
+    const { interaction } = makeInteraction({
+      sub: "softban",
+      target,
+      targetInGuild: true,
+      targetRolePosition: 1,
+      moderatorPosition: 10,
+      banImpl: async () => {
+        order.push("ban");
+      },
+      unbanImpl: async () => {
+        order.push("unban");
+      },
+    });
+
+    await modCommand.execute(interaction as any);
+
+    expect(order).toEqual(["dm", "ban", "unban"]);
+    const rows = await testEnv.db.select().from(infractions).all();
+    expect(rows[0]?.type).toBe("softban");
   });
 });
 

@@ -4,9 +4,9 @@ import { createTestDb } from "../helpers/db";
 
 const testEnv = await createTestDb();
 await mock.module("~/db", () => ({ db: testEnv.db }));
-await mock.module("~/lib/pagination", () => ({
-  sendPaginatedEmbeds: mock(async () => undefined),
-}));
+// Do not mock ~/lib/pagination here: Bun module mocks are process-global, and
+// replacing it in this file leaks into tests/lib/pagination.test.ts during the
+// full suite. These tests only inspect the initial /user info reply.
 
 const { infractions, notes, users } = await import("../../src/db/schema");
 const { default: userCommand } = await import("../../src/commands/moderation/user");

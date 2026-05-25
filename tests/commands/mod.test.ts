@@ -55,6 +55,15 @@ describe("/mod command", () => {
       expect(silent?.required).toBeFalsy();
     }
   });
+
+  test("every subcommand exposes an optional no_dm flag", () => {
+    for (const name of ["warn", "kick", "softban", "ban"]) {
+      const sub = findSub(modCommand.data.toJSON(), name);
+      const noDm = (sub.options ?? []).find((o) => o.name === "no_dm");
+      expect(noDm).toBeDefined();
+      expect(noDm?.required).toBeFalsy();
+    }
+  });
 });
 
 function findSub(json: ReturnType<typeof modCommand.data.toJSON>, name: string): RawOpt {
