@@ -386,6 +386,16 @@ async function handleBan(interaction: ChatInputCommandInteraction) {
     return;
   }
 
+  const dmSent = await trySendDm(
+    targetUser,
+    dmEmbed({
+      title: "You have been banned",
+      description: reason,
+      color: Colors.Ban,
+      serverName: guild.name,
+    }),
+  );
+
   try {
     await guild.members.ban(targetUser, {
       reason: `${reason} | ${interaction.user.username}`,
@@ -403,16 +413,6 @@ async function handleBan(interaction: ChatInputCommandInteraction) {
     });
     return;
   }
-
-  const dmSent = await trySendDm(
-    targetUser,
-    dmEmbed({
-      title: "You have been banned",
-      description: reason,
-      color: Colors.Ban,
-      serverName: guild.name,
-    }),
-  );
 
   const persisted = await recordInfraction({
     targetUser,

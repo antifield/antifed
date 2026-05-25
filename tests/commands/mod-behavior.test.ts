@@ -147,7 +147,7 @@ describe("/mod warn", () => {
 });
 
 describe("/mod ban", () => {
-  test("DMs only AFTER a successful ban", async () => {
+  test("DMs before banning so the user still shares the guild", async () => {
     const target = makeUser({ id: "target-ban" });
     const callOrder: string[] = [];
 
@@ -169,13 +169,13 @@ describe("/mod ban", () => {
 
     await modCommand.execute(interaction as any);
 
-    expect(callOrder).toEqual(["ban", "dm"]);
+    expect(callOrder).toEqual(["dm", "ban"]);
     const rows = await testEnv.db.select().from(infractions).all();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.type).toBe("ban");
   });
 
-  test("does NOT DM or record when the ban call fails", async () => {
+  test("does not record when the ban call fails", async () => {
     const target = makeUser({ id: "target-ban-fail" });
     target.send = mock(async () => {}) as any;
     const banImpl = mock(async () => {
@@ -193,7 +193,7 @@ describe("/mod ban", () => {
 
     await modCommand.execute(interaction as any);
 
-    expect(target.send).not.toHaveBeenCalled();
+    expect(target.send).toHaveBeenCalledTimes(1);
     const rows = await testEnv.db.select().from(infractions).all();
     expect(rows).toHaveLength(0);
 
