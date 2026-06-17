@@ -6,6 +6,7 @@ import {
   hasModRole,
   hasPageRole,
   hasStaffRole,
+  memberHasStaffRole,
   roleCheckers,
 } from "../../src/lib/role-gates";
 
@@ -70,5 +71,32 @@ describe("role gates", () => {
   test("roleCheckers map routes to the right checker", () => {
     expect(roleCheckers.dev(interactionWith([DEV_ROLE]))).toBe(true);
     expect(roleCheckers.staff(interactionWith([DEV_ROLE]))).toBe(true);
+  });
+});
+
+function memberWith(roleIds: string[]): any {
+  return {
+    roles: {
+      cache: new Collection(roleIds.map((id) => [id, { id }])),
+    },
+  };
+}
+
+describe("memberHasStaffRole", () => {
+  test("true for the dev role", () => {
+    expect(memberHasStaffRole(memberWith([DEV_ROLE]))).toBe(true);
+  });
+
+  test("true for the moderator role (when configured)", () => {
+    if (!MOD_ROLE) return;
+    expect(memberHasStaffRole(memberWith([MOD_ROLE]))).toBe(true);
+  });
+
+  test("false when only an unrelated role is present", () => {
+    expect(memberHasStaffRole(memberWith(["unrelated-role"]))).toBe(false);
+  });
+
+  test("false for a null member (uncached)", () => {
+    expect(memberHasStaffRole(null)).toBe(false);
   });
 });

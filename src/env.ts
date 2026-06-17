@@ -13,6 +13,7 @@ export const env = createEnv({
     PAGE_ROLE_ID: z.string().optional(),
 
     LOG_CHANNEL_ID: z.string().optional(),
+    HONEYPOT_CHANNEL_ID: z.string().optional(),
 
     DATABASE_URL: z.string().min(1),
     DATABASE_AUTH_TOKEN: z.string().optional(),
