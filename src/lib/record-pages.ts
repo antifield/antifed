@@ -1,4 +1,5 @@
 import { EmbedBuilder, type User } from "discord.js";
+import { chunk } from "~/lib/chunk";
 import { Colors, INFRACTIONS_PER_PAGE } from "~/lib/constants";
 
 type InfractionRecord = {
@@ -23,9 +24,8 @@ export function buildInfractionPages(
   options?: { showFooter?: boolean },
 ): EmbedBuilder[] {
   const pages: EmbedBuilder[] = [];
-  for (let i = 0; i < records.length; i += INFRACTIONS_PER_PAGE) {
-    const chunk = records.slice(i, i + INFRACTIONS_PER_PAGE);
-    const description = chunk.map(renderInfractionLine).join("\n\n");
+  for (const group of chunk(records, INFRACTIONS_PER_PAGE)) {
+    const description = group.map(renderInfractionLine).join("\n\n");
 
     const embed = new EmbedBuilder()
       .setAuthor({
@@ -52,9 +52,8 @@ export function buildNotePages(
   options?: { showFooter?: boolean },
 ): EmbedBuilder[] {
   const pages: EmbedBuilder[] = [];
-  for (let i = 0; i < records.length; i += INFRACTIONS_PER_PAGE) {
-    const chunk = records.slice(i, i + INFRACTIONS_PER_PAGE);
-    const description = chunk
+  for (const group of chunk(records, INFRACTIONS_PER_PAGE)) {
+    const description = group
       .map((r) => {
         const ts = Math.floor(new Date(r.createdAt).getTime() / 1000);
         return `\`#${r.id}\` <t:${ts}:R> by <@${r.authorId}>\n> ${r.content}`;

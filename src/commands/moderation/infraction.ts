@@ -10,9 +10,10 @@ import { db } from "~/db";
 import { infractions, users } from "~/db/schema";
 import { Colors } from "~/lib/constants";
 import { errorEmbed, infoEmbed, modEmbed } from "~/lib/embeds";
+import { formatError } from "~/lib/errors";
 import { useInteractionLog } from "~/lib/log-context";
 import { log } from "~/lib/logger";
-import { sendModLog } from "~/lib/mod-log";
+import { replyAndLog } from "~/lib/mod-reply";
 import { sendPaginatedEmbeds } from "~/lib/pagination";
 import { buildInfractionPages } from "~/lib/record-pages";
 import { hasDevRole } from "~/lib/role-gates";
@@ -178,7 +179,7 @@ async function handleRemove(interaction: ChatInputCommandInteraction) {
           action: "infraction-remove-unban",
           infractionId: id,
           targetDiscordId: user.discordId,
-          error: err instanceof Error ? (err.stack ?? err.message) : String(err),
+          error: formatError(err),
         });
         await interaction.editReply({
           embeds: [
@@ -210,8 +211,7 @@ async function handleRemove(interaction: ChatInputCommandInteraction) {
     moderator: interaction.user,
   });
 
-  await interaction.editReply({ embeds: [embed] });
-  await sendModLog(interaction.guild!, embed);
+  await replyAndLog(interaction, interaction.guild!, { reply: embed });
 }
 
 async function handleClear(interaction: ChatInputCommandInteraction) {
@@ -269,8 +269,7 @@ async function handleClear(interaction: ChatInputCommandInteraction) {
     target: targetUser,
   });
 
-  await interaction.editReply({ embeds: [embed] });
-  await sendModLog(interaction.guild!, embed);
+  await replyAndLog(interaction, interaction.guild!, { reply: embed });
 }
 
 async function tryUnban(guild: Guild, discordId: string): Promise<string> {
@@ -284,7 +283,7 @@ async function tryUnban(guild: Guild, discordId: string): Promise<string> {
     log.error({
       action: "infraction-clear-unban",
       targetDiscordId: discordId,
-      error: err instanceof Error ? (err.stack ?? err.message) : String(err),
+      error: formatError(err),
     });
     return `\u26A0\uFE0F Could not unban <@${discordId}> — resolve manually.`;
   }

@@ -1,5 +1,6 @@
 import { Client, Collection, Events, GatewayIntentBits, REST, Routes } from "discord.js";
 import { env } from "~/env";
+import { formatError } from "~/lib/errors";
 import { log } from "~/lib/logger";
 import type { Command, Event } from "~/types";
 import { Glob } from "bun";
@@ -83,10 +84,7 @@ async function main(): Promise<void> {
       // Registration is a one-shot at startup; if Discord rejects (rate limit, bad token,
       // outage) we log and exit so the supervisor can retry with backoff. Staying up
       // with stale or no commands registered would silently break every interaction.
-      log.error(
-        "commands-register",
-        `Failed to register slash commands: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
-      );
+      log.error("commands-register", `Failed to register slash commands: ${formatError(err)}`);
       process.exit(1);
     }
   });
@@ -95,10 +93,7 @@ async function main(): Promise<void> {
 }
 
 process.on("unhandledRejection", (reason) => {
-  log.error(
-    "unhandledRejection",
-    reason instanceof Error ? (reason.stack ?? reason.message) : String(reason),
-  );
+  log.error("unhandledRejection", formatError(reason));
 });
 
 process.on("uncaughtException", (err) => {
@@ -109,6 +104,6 @@ process.on("uncaughtException", (err) => {
 });
 
 main().catch((err) => {
-  log.error("fatal", err instanceof Error ? (err.stack ?? err.message) : String(err));
+  log.error("fatal", formatError(err));
   process.exit(1);
 });

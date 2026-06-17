@@ -10,9 +10,10 @@ import { notes, users } from "~/db/schema";
 import { Colors } from "~/lib/constants";
 import { errorEmbed, infoEmbed, modEmbed } from "~/lib/embeds";
 import { ensureUser } from "~/lib/ensure-user";
+import { formatError } from "~/lib/errors";
 import { useInteractionLog } from "~/lib/log-context";
 import { log } from "~/lib/logger";
-import { sendModLog } from "~/lib/mod-log";
+import { replyAndLog } from "~/lib/mod-reply";
 import { sendPaginatedEmbeds } from "~/lib/pagination";
 import { buildNotePages } from "~/lib/record-pages";
 import { hasDevRole } from "~/lib/role-gates";
@@ -127,7 +128,7 @@ async function handleAdd(interaction: ChatInputCommandInteraction) {
       action: "note-insert",
       targetId: targetUser.id,
       moderatorId: interaction.user.id,
-      error: err instanceof Error ? (err.stack ?? err.message) : String(err),
+      error: formatError(err),
     });
     await interaction.editReply({
       embeds: [errorEmbed("Failed to save the note. Try again; if it persists, tell a dev.")],
@@ -144,8 +145,7 @@ async function handleAdd(interaction: ChatInputCommandInteraction) {
     fields: [{ name: "Content", value: content }],
   });
 
-  await interaction.editReply({ embeds: [embed] });
-  await sendModLog(interaction.guild!, embed);
+  await replyAndLog(interaction, interaction.guild!, { reply: embed });
 }
 
 async function handleRemove(interaction: ChatInputCommandInteraction) {
@@ -174,8 +174,7 @@ async function handleRemove(interaction: ChatInputCommandInteraction) {
     moderator: interaction.user,
   });
 
-  await interaction.editReply({ embeds: [embed] });
-  await sendModLog(interaction.guild!, embed);
+  await replyAndLog(interaction, interaction.guild!, { reply: embed });
 }
 
 async function handleClear(interaction: ChatInputCommandInteraction) {
@@ -208,6 +207,5 @@ async function handleClear(interaction: ChatInputCommandInteraction) {
     target: targetUser,
   });
 
-  await interaction.editReply({ embeds: [embed] });
-  await sendModLog(interaction.guild!, embed);
+  await replyAndLog(interaction, interaction.guild!, { reply: embed });
 }
