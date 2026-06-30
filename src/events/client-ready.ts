@@ -16,7 +16,9 @@ export function setMemberCountPresence(client: Client<true>): void {
     return;
   }
 
-  client.user.setActivity(`${guild.memberCount.toLocaleString("en-US")} members`, {
+  // Discord no longer renders the activity-type verb ("Watching"), so the eye
+  // emoji carries that meaning in the name itself.
+  client.user.setActivity(`👀 ${guild.memberCount.toLocaleString("en-US")} members`, {
     type: ActivityType.Watching,
   });
 }
