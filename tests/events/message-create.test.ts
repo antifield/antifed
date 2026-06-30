@@ -279,9 +279,9 @@ describe("honeypot auto-ban", () => {
     );
     expect(sendModLog).toHaveBeenCalledTimes(1);
     const embed = sendModLog.mock.calls[0]?.[1] as {
-      data?: { title?: string; description?: string };
+      data?: { author?: { name?: string }; description?: string };
     };
-    expect(embed?.data?.title).toBe("Auto-Ban Failed");
+    expect(embed?.data?.author?.name).toBe("Auto-Ban Failed");
     expect(embed?.data?.description).toContain("manual action needed");
   });
 
@@ -323,9 +323,9 @@ describe("honeypot auto-ban", () => {
     );
     expect(sendModLog).toHaveBeenCalledTimes(1);
     const embed = sendModLog.mock.calls[0]?.[1] as {
-      data?: { title?: string; description?: string };
+      data?: { author?: { name?: string }; description?: string };
     };
-    expect(embed?.data?.title).toBe("Auto-Ban Skipped");
+    expect(embed?.data?.author?.name).toBe("Auto-Ban Skipped");
     expect(embed?.data?.description).toContain("Review manually");
   });
 
