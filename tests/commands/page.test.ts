@@ -3,10 +3,23 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 type RawOpt = { name: string; required?: boolean; type?: number };
 
 // Configure Better Stack so execute() gets past the "not configured" guard, and
-// stub the side-effect modules so we can drive the command in isolation.
+// stub the side-effect modules so we can drive the command in isolation. This
+// mock is global (bun's mock.module), so it must stay a COMPLETE env — other
+// suites (role-gates, interaction-create) read the role ids from it.
 const pageEnv = {
+  DISCORD_TOKEN: "test-token",
+  DISCORD_CLIENT_ID: "test-client",
+  DISCORD_GUILD_ID: "test-guild",
+  BOT_DEVELOPER_ROLE_ID: "dev-role",
+  MODERATOR_ROLE_ID: "mod-role",
+  PAGE_ROLE_ID: "page-role",
+  LOG_CHANNEL_ID: "log-channel",
+  HONEYPOT_CHANNEL_ID: "honeypot-1",
+  DATABASE_URL: "http://localhost:9120",
+  DATABASE_AUTH_TOKEN: undefined,
   BETTERSTACK_API_TOKEN: "token",
   BETTERSTACK_REQUESTER_EMAIL: "oncall@example.com",
+  NODE_ENV: "test",
 };
 await mock.module("~/env", () => ({ env: pageEnv }));
 await mock.module("~/lib/mod-log", () => ({ sendModLog: mock(async () => undefined) }));
