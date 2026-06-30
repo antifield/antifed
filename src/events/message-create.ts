@@ -19,21 +19,27 @@ const AUDIT_FAILED_MESSAGE = "\n*Ban succeeded, but writing the audit record fai
 // ban, DM, and infraction row rather than one per message.
 const inFlight = new Set<string>();
 
+// A message worth banning for: a guild member posting in the honeypot channel
+// who isn't us, a webhook, a system event, or staff. The channel check is first
+// because it runs on every message in the server; the rest only on a hit.
+function isHoneypotHit(message: Message, honeypotChannelId: string): message is Message<true> {
+  if (message.channelId !== honeypotChannelId) return false;
+  if (!message.inGuild() || message.system || message.webhookId) return false;
+  if (message.author.id === message.client.user?.id) return false;
+  return !memberHasStaffRole(message.member);
+}
+
 export default {
   name: Events.MessageCreate,
   once: false,
   async execute(message: Message) {
     const honeypotChannelId = env.HONEYPOT_CHANNEL_ID;
-    if (!honeypotChannelId) return; // feature disabled when unset
-    if (message.channelId !== honeypotChannelId) return; // cheapest check, runs on every message
-    if (!message.inGuild()) return;
-    if (message.system) return; // system messages (pins, joins) are attributed to a user
-    if (message.author.bot || message.webhookId) return; // bots, webhooks, and our own messages
-    if (memberHasStaffRole(message.member)) return; // staff can post here without consequence
+    if (!honeypotChannelId) return; // honeypot disabled
+    if (!isHoneypotHit(message, honeypotChannelId)) return;
     if (inFlight.has(message.author.id)) return;
 
     const botUser = message.client.user;
-    if (!botUser) return; // not logged in yet; unreachable once ready has fired
+    if (!botUser) return;
 
     inFlight.add(message.author.id);
     try {

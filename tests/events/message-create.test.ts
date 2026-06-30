@@ -132,13 +132,19 @@ describe("honeypot auto-ban", () => {
     expect(await testEnv.db.select().from(infractions).all()).toHaveLength(0);
   });
 
-  test("ignores bots", async () => {
+  test("bans a bot-flagged account that posts (the trap catches bots too)", async () => {
     const { message, ban } = makeMessage({ bot: true });
+    await messageCreate.execute(message as any);
+    expect(ban).toHaveBeenCalledTimes(1);
+  });
+
+  test("ignores its own messages", async () => {
+    const { message, ban } = makeMessage({ authorId: "bot-1" });
     await messageCreate.execute(message as any);
     expect(ban).not.toHaveBeenCalled();
   });
 
-  test("ignores webhook messages", async () => {
+  test("ignores webhook messages (not a bannable user)", async () => {
     const { message, ban } = makeMessage({ webhookId: "wh-1" });
     await messageCreate.execute(message as any);
     expect(ban).not.toHaveBeenCalled();
