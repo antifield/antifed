@@ -132,4 +132,19 @@ describe("rejoin history alert", () => {
 
     expect(sendModLog).toHaveBeenCalledTimes(1);
   });
+
+  test("includes the note count in the alert when the member has notes", async () => {
+    const userId = await seedUser("noted-1");
+    await testEnv.db
+      .insert(infractions)
+      .values({ userId, moderatorId: "mod-1", type: "warn", reason: "x" });
+    await testEnv.db
+      .insert(notes)
+      .values({ userId, authorId: "mod-1", content: "keep an eye out" });
+
+    await guildMemberAdd.execute(makeMember({ id: "noted-1" }) as any);
+
+    const embed = sendModLog.mock.calls[0]?.[1] as { data?: { description?: string } };
+    expect(embed?.data?.description).toContain("1 note");
+  });
 });
