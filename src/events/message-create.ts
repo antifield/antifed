@@ -6,6 +6,7 @@ import {
   PermissionFlagsBits,
 } from "discord.js";
 import { Colors, DM_FAILED_MESSAGE } from "~/lib/constants";
+import { Cooldown } from "~/lib/cooldown";
 import { trySendDm } from "~/lib/dm";
 import { dmEmbed, modEmbed } from "~/lib/embeds";
 import { formatError } from "~/lib/errors";
@@ -25,6 +26,11 @@ const AUDIT_FAILED_MESSAGE = "\n*Ban succeeded, but writing the audit record fai
 // spammer (which all arrive before the ban round-trips) results in a single
 // ban, DM, and infraction row rather than one per message.
 const inFlight = new Set<string>();
+
+// Throttle the "Auto-Ban Failed" alert: a persistent permission/hierarchy failure
+// under a spam flood would otherwise post one mod-log per message (inFlight only
+// dedupes concurrent processing, not sequential failures across many accounts).
+const banFailureAlerts = new Cooldown(5 * 60_000);
 
 // Structural gate: a non-system, non-webhook message in the honeypot channel
 // (or a thread under it) from a guild member who isn't us or the guild owner.
@@ -141,23 +147,27 @@ export default {
         // already been told (via the DM above) that they were banned.
         const dmNote =
           dmStatus === "sent" ? "\n*The user was already DM'd that they were banned.*" : "";
-        await sendModLog(
-          message.guild,
-          modEmbed({
-            title: "Auto-Ban Failed",
-            description: `**${message.author.username}** posted in the honeypot channel, but the auto-ban failed — **manual action needed**.${dmNote}`,
-            color: Colors.Ban,
-            moderator: botUser,
-            target: message.author,
-            fields: [
-              { name: "Reason", value: BAN_REASON },
-              {
-                name: "Error",
-                value: (err instanceof Error ? err.message : String(err)) || "unknown error",
-              },
-            ],
-          }),
-        );
+        // Throttle: a persistent failure under a spam flood should post one alert
+        // per window, not one per message.
+        if (banFailureAlerts.claim("honeypot")) {
+          await sendModLog(
+            message.guild,
+            modEmbed({
+              title: "Auto-Ban Failed",
+              description: `**${message.author.username}** posted in the honeypot channel, but the auto-ban failed — **manual action needed**.${dmNote}`,
+              color: Colors.Ban,
+              moderator: botUser,
+              target: message.author,
+              fields: [
+                { name: "Reason", value: BAN_REASON },
+                {
+                  name: "Error",
+                  value: (err instanceof Error ? err.message : String(err)) || "unknown error",
+                },
+              ],
+            }),
+          );
+        }
         return;
       }
 

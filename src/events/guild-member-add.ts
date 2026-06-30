@@ -3,6 +3,7 @@ import { count, desc, eq } from "drizzle-orm";
 import { db } from "~/db";
 import { infractions, notes, users } from "~/db/schema";
 import { Colors } from "~/lib/constants";
+import { Cooldown } from "~/lib/cooldown";
 import { modEmbed } from "~/lib/embeds";
 import { formatError } from "~/lib/errors";
 import { log } from "~/lib/logger";
@@ -13,9 +14,8 @@ const INFRACTION_TYPES = ["ban", "warn", "kick", "softban"] as const;
 
 // Cap one alert per member per window: a member with a removed/kick/warn record
 // (an active ban can't rejoin) could otherwise leave and rejoin on a standing
-// invite repeatedly to flood the mod-log. Keyed by discord id, flagged users only.
-const ALERT_COOLDOWN_MS = 10 * 60_000;
-const recentlyAlerted = new Map<string, number>();
+// invite repeatedly to flood the mod-log.
+const alertCooldown = new Cooldown(10 * 60_000);
 
 // Staff asked to be alerted when a member with any prior infraction history
 // rejoins — including users who were banned and later unbanned (the row is kept
@@ -40,10 +40,7 @@ export default {
         .all();
       if (rows.length === 0) return; // recorded, but no infractions
 
-      const now = Date.now();
-      const lastAlerted = recentlyAlerted.get(member.id);
-      if (lastAlerted !== undefined && now - lastAlerted < ALERT_COOLDOWN_MS) return;
-      recentlyAlerted.set(member.id, now);
+      if (!alertCooldown.claim(member.id)) return;
 
       const noteCountRow = await db
         .select({ value: count() })
