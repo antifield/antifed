@@ -11,6 +11,7 @@ import { infractions, users } from "~/db/schema";
 import { Colors } from "~/lib/constants";
 import { errorEmbed, infoEmbed, modEmbed } from "~/lib/embeds";
 import { formatError } from "~/lib/errors";
+import { INFRACTION_TYPES, type InfractionType } from "~/lib/infractions";
 import { useInteractionLog } from "~/lib/log-context";
 import { log } from "~/lib/logger";
 import { replyAndLog } from "~/lib/mod-reply";
@@ -18,9 +19,6 @@ import { sendPaginatedEmbeds } from "~/lib/pagination";
 import { buildInfractionPages } from "~/lib/record-pages";
 import { hasDevRole } from "~/lib/role-gates";
 import type { Command } from "~/types";
-
-const INFRACTION_TYPES = ["ban", "warn", "kick", "softban"] as const;
-type InfractionType = (typeof INFRACTION_TYPES)[number];
 
 // Discord API error code for "Unknown Ban" — user isn't currently banned.
 // Treat this as success: something already unbanned them (manual action, another tool).

@@ -108,7 +108,7 @@ describe("/page command metadata", () => {
 
 describe("/page cooldown", () => {
   test("claims the cooldown before the fetch so concurrent pages don't double-fire", async () => {
-    let release: () => void = () => {};
+    let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
