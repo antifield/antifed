@@ -5,7 +5,8 @@ import { lastReplyDescription, type ReplyPayload } from "../helpers/mock-types";
 
 const testEnv = await createTestDb();
 await mock.module("~/db", () => ({ db: testEnv.db }));
-await mock.module("~/lib/mod-log", () => ({ sendModLog: mock(async () => undefined) }));
+const sendModLog = mock(async (_guild: unknown, _embed: unknown) => undefined);
+await mock.module("~/lib/mod-log", () => ({ sendModLog }));
 const logError = mock((_entry: unknown) => undefined);
 await mock.module("~/lib/logger", () => ({
   log: { info: mock(() => undefined), warn: mock(() => undefined), error: logError },
@@ -127,6 +128,7 @@ function makeInteraction(opts: {
 beforeEach(async () => {
   await testEnv.client.batch(["DELETE FROM infractions", "DELETE FROM users"], "write");
   logError.mockClear();
+  sendModLog.mockClear();
 });
 
 describe("/mod warn", () => {
@@ -375,6 +377,44 @@ describe("/mod softban", () => {
     expect(order).toEqual(["dm", "ban", "unban"]);
     const rows = await testEnv.db.select().from(infractions).all();
     expect(rows[0]?.type).toBe("softban");
+  });
+});
+
+// modEmbed renders the moderator as the embed footer, so footer presence is the
+// proxy for "is the moderator attributed in this embed".
+function replyEmbedData(editReplyMock: {
+  mock: { calls: unknown[][] };
+}): { footer?: { text?: string } } | undefined {
+  return (editReplyMock.mock.calls.at(-1)?.[0] as ReplyPayload | undefined)?.embeds?.[0]?.data as
+    | { footer?: { text?: string } }
+    | undefined;
+}
+
+function lastModLogEmbedData(): { footer?: { text?: string } } | undefined {
+  return (
+    sendModLog.mock.calls.at(-1)?.[1] as { data?: { footer?: { text?: string } } } | undefined
+  )?.data;
+}
+
+describe("/mod silent mode", () => {
+  test("public action hides the moderator in the channel reply but logs it with attribution", async () => {
+    const target = makeUser({ id: "silent-public" });
+    const { interaction } = makeInteraction({ sub: "warn", target, reason: "r", silent: false });
+
+    await modCommand.execute(interaction as any);
+
+    expect(replyEmbedData(interaction.editReply)?.footer).toBeUndefined();
+    expect(lastModLogEmbedData()?.footer?.text).toBe("mod");
+  });
+
+  test("silent action attributes the moderator in the ephemeral reply too", async () => {
+    const target = makeUser({ id: "silent-ephemeral" });
+    const { interaction } = makeInteraction({ sub: "warn", target, reason: "r", silent: true });
+
+    await modCommand.execute(interaction as any);
+
+    expect(replyEmbedData(interaction.editReply)?.footer?.text).toBe("mod");
+    expect(lastModLogEmbedData()?.footer?.text).toBe("mod");
   });
 });
 
