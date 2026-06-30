@@ -1,8 +1,9 @@
-import { Events, type Message } from "discord.js";
+import { Events, type Message, PermissionFlagsBits } from "discord.js";
 import { Colors, DM_FAILED_MESSAGE } from "~/lib/constants";
 import { trySendDm } from "~/lib/dm";
 import { dmEmbed, modEmbed } from "~/lib/embeds";
 import { formatError } from "~/lib/errors";
+import { canModerate } from "~/lib/hierarchy";
 import { recordInfraction } from "~/lib/infractions";
 import { log } from "~/lib/logger";
 import { sendModLog } from "~/lib/mod-log";
@@ -20,13 +21,29 @@ const AUDIT_FAILED_MESSAGE = "\n*Ban succeeded, but writing the audit record fai
 const inFlight = new Set<string>();
 
 // A message worth banning for: a guild member posting in the honeypot channel
-// who isn't us, a webhook, a system event, or staff. The channel check is first
-// because it runs on every message in the server; the rest only on a hit.
+// who isn't us, a webhook, a system event, or privileged (owner, admin, staff,
+// or anyone the bot couldn't ban anyway). The channel check is first because it
+// runs on every message in the server; the rest only on a hit.
 function isHoneypotHit(message: Message, honeypotChannelId: string): message is Message<true> {
   if (message.channelId !== honeypotChannelId) return false;
+  // inGuild() gates every message.guild access below — it is what makes the
+  // Message<true> narrowing sound, so it must stay ahead of those reads.
   if (!message.inGuild() || message.system || message.webhookId) return false;
   if (message.author.id === message.client.user?.id) return false;
-  return !memberHasStaffRole(message.member);
+
+  // Never auto-ban a privileged member — these mirror the guards on /mod ban so
+  // the honeypot can't act on someone the manual command itself would refuse to
+  // touch. The owner check uses the author id so it holds even when the member
+  // object is uncached; canModerate covers owner + role hierarchy + the bot
+  // itself, and staff roles are checked separately because they can sit below
+  // the bot in the hierarchy (where canModerate alone would allow the ban).
+  if (message.author.id === message.guild.ownerId) return false;
+  const member = message.member;
+  if (memberHasStaffRole(member)) return false;
+  if (member?.permissions.has(PermissionFlagsBits.Administrator)) return false;
+  const me = message.guild.members.me;
+  if (me && member && !canModerate(me, member)) return false;
+  return true;
 }
 
 export default {

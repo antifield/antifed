@@ -44,6 +44,9 @@ function makeMessage(
     bot?: boolean;
     webhookId?: string | null;
     roleIds?: string[];
+    isOwner?: boolean;
+    isAdmin?: boolean;
+    memberRolePosition?: number;
     banImpl?: (user: unknown, options?: BanOptions) => Promise<void>;
     sendImpl?: () => Promise<void>;
   } = {},
@@ -58,10 +61,28 @@ function makeMessage(
 
   const ban = mock(opts.banImpl ?? (async (_u: unknown, _o?: BanOptions) => undefined));
 
+  // The bot sits at role position 100; targets default below it so canModerate
+  // allows the ban. ownerId defaults to a non-author id so authors aren't owners.
+  const ownerId = opts.isOwner ? (opts.authorId ?? "spammer-1") : "owner-1";
   const member = {
+    id: opts.authorId ?? "spammer-1",
     roles: {
       cache: new Collection((opts.roleIds ?? []).map((id) => [id, { id }])),
+      highest: { position: opts.memberRolePosition ?? 1 },
     },
+    permissions: { has: () => opts.isAdmin ?? false },
+  };
+
+  const guild = {
+    name: "Test Guild",
+    ownerId,
+    members: { ban, me: undefined as unknown },
+  };
+  // The bot's own GuildMember, used by canModerate for the hierarchy check.
+  guild.members.me = {
+    id: "bot-1",
+    guild,
+    roles: { highest: { position: 100 } },
   };
 
   const message = {
@@ -78,7 +99,7 @@ function makeMessage(
         displayAvatarURL: () => "https://example.com/bot.png",
       },
     },
-    guild: { name: "Test Guild", members: { ban } },
+    guild,
   };
 
   return { message, author, ban };
@@ -166,6 +187,30 @@ describe("honeypot auto-ban", () => {
     const { message, ban } = makeMessage({ roleIds: ["mod-role"] });
     await messageCreate.execute(message as any);
     expect(ban).not.toHaveBeenCalled();
+    expect(await testEnv.db.select().from(infractions).all()).toHaveLength(0);
+  });
+
+  test("exempts the guild owner even without a staff role", async () => {
+    const { message, ban, author } = makeMessage({ isOwner: true });
+    await messageCreate.execute(message as any);
+    expect(ban).not.toHaveBeenCalled();
+    expect(author.send).not.toHaveBeenCalled();
+    expect(await testEnv.db.select().from(infractions).all()).toHaveLength(0);
+  });
+
+  test("exempts an administrator who lacks a staff role", async () => {
+    const { message, ban, author } = makeMessage({ isAdmin: true });
+    await messageCreate.execute(message as any);
+    expect(ban).not.toHaveBeenCalled();
+    expect(author.send).not.toHaveBeenCalled();
+    expect(await testEnv.db.select().from(infractions).all()).toHaveLength(0);
+  });
+
+  test("exempts a member the bot cannot outrank in the role hierarchy", async () => {
+    const { message, ban, author } = makeMessage({ memberRolePosition: 200 });
+    await messageCreate.execute(message as any);
+    expect(ban).not.toHaveBeenCalled();
+    expect(author.send).not.toHaveBeenCalled();
     expect(await testEnv.db.select().from(infractions).all()).toHaveLength(0);
   });
 
