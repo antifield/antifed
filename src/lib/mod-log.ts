@@ -1,5 +1,6 @@
 import { type EmbedBuilder, type Guild, TextChannel } from "discord.js";
 import { env } from "~/env";
+import { formatError } from "~/lib/errors";
 import { log } from "~/lib/logger";
 
 export async function sendModLog(guild: Guild, embed: EmbedBuilder): Promise<void> {
@@ -24,7 +25,7 @@ export async function sendModLog(guild: Guild, embed: EmbedBuilder): Promise<voi
       action: "mod-log",
       status: "fetch_failed",
       channel_id: env.LOG_CHANNEL_ID,
-      error: err instanceof Error ? (err.stack ?? err.message) : String(err),
+      error: formatError(err),
     });
   }
 }

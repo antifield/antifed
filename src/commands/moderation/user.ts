@@ -12,6 +12,7 @@ import {
 import { and, count, desc, eq, inArray } from "drizzle-orm";
 import { db } from "~/db";
 import { infractions, notes, users } from "~/db/schema";
+import { chunk } from "~/lib/chunk";
 import { Colors, INFRACTIONS_PER_PAGE } from "~/lib/constants";
 import { infoEmbed } from "~/lib/embeds";
 import { useInteractionLog } from "~/lib/log-context";
@@ -290,10 +291,8 @@ async function handleAudit(interaction: ChatInputCommandInteraction) {
   const summary = `**${infractionRows.length}** infractions issued \u2022 **${noteRows.length}** notes written`;
 
   const pages: EmbedBuilder[] = [];
-  for (let i = 0; i < entries.length; i += INFRACTIONS_PER_PAGE) {
-    const chunk = entries.slice(i, i + INFRACTIONS_PER_PAGE);
-
-    const description = chunk
+  for (const group of chunk(entries, INFRACTIONS_PER_PAGE)) {
+    const description = group
       .map((e) => {
         const ts = Math.floor(new Date(e.createdAt).getTime() / 1000);
         return `**${e.type.toUpperCase()}** <@${e.targetDiscordId}> - <t:${ts}:R>\n> ${e.detail}`;

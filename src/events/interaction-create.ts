@@ -1,5 +1,6 @@
 import { Collection, Events, type Interaction, MessageFlags } from "discord.js";
 import { errorEmbed } from "~/lib/embeds";
+import { formatError } from "~/lib/errors";
 import { withInteractionLog } from "~/lib/log-context";
 import { log } from "~/lib/logger";
 import { roleCheckers } from "~/lib/role-gates";
@@ -62,9 +63,6 @@ async function replyError(interaction: Interaction & { replied: boolean; deferre
       await interaction.reply({ embeds, flags: MessageFlags.Ephemeral });
     }
   } catch (err) {
-    log.error(
-      "command-reply",
-      `Failed to send error response: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
-    );
+    log.error("command-reply", `Failed to send error response: ${formatError(err)}`);
   }
 }

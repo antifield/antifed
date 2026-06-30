@@ -7,6 +7,7 @@ import {
 import { env } from "~/env";
 import { Colors } from "~/lib/constants";
 import { errorEmbed, successEmbed } from "~/lib/embeds";
+import { formatError } from "~/lib/errors";
 import { useInteractionLog } from "~/lib/log-context";
 import { log } from "~/lib/logger";
 import { sendModLog } from "~/lib/mod-log";
@@ -155,7 +156,7 @@ export default {
       log.error({
         action: "page",
         status: "fetch_error",
-        error: err instanceof Error ? (err.stack ?? err.message) : String(err),
+        error: formatError(err),
       });
       eventLog?.set({ outcome: "error", reason: "fetch_error" });
       await interaction.editReply({

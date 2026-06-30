@@ -1,4 +1,4 @@
-import type { ChatInputCommandInteraction } from "discord.js";
+import type { ChatInputCommandInteraction, GuildMember } from "discord.js";
 import { env } from "~/env";
 
 function hasRoleId(interaction: ChatInputCommandInteraction, roleId: string | undefined): boolean {
@@ -22,6 +22,15 @@ export function hasStaffRole(interaction: ChatInputCommandInteraction): boolean 
 
 export function hasPageRole(interaction: ChatInputCommandInteraction): boolean {
   return hasRoleId(interaction, env.PAGE_ROLE_ID);
+}
+
+// Staff check for contexts that hold a GuildMember rather than an interaction,
+// such as the messageCreate handler. A null member (uncached) is treated as
+// non-staff so it never short-circuits an automated action.
+export function memberHasStaffRole(member: GuildMember | null | undefined): boolean {
+  if (!member) return false;
+  const staffRoleIds = [env.MODERATOR_ROLE_ID, env.BOT_DEVELOPER_ROLE_ID];
+  return staffRoleIds.some((roleId) => roleId !== undefined && member.roles.cache.has(roleId));
 }
 
 export const roleCheckers = {

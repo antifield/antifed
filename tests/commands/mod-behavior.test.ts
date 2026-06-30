@@ -7,7 +7,9 @@ const testEnv = await createTestDb();
 await mock.module("~/db", () => ({ db: testEnv.db }));
 await mock.module("~/lib/mod-log", () => ({ sendModLog: mock(async () => undefined) }));
 const logError = mock((_entry: unknown) => undefined);
-await mock.module("~/lib/logger", () => ({ log: { error: logError } }));
+await mock.module("~/lib/logger", () => ({
+  log: { info: mock(() => undefined), warn: mock(() => undefined), error: logError },
+}));
 
 const { infractions, users } = await import("../../src/db/schema");
 const { default: modCommand } = await import("../../src/commands/moderation/mod");

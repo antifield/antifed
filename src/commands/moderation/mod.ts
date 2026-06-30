@@ -6,15 +6,15 @@ import {
   type Guild,
   type User,
 } from "discord.js";
-import { db } from "~/db";
-import { infractions } from "~/db/schema";
 import { Colors, DM_FAILED_MESSAGE } from "~/lib/constants";
+import { trySendDm } from "~/lib/dm";
 import { dmEmbed, errorEmbed, modEmbed } from "~/lib/embeds";
-import { ensureUser } from "~/lib/ensure-user";
+import { formatError } from "~/lib/errors";
 import { canModerate, formatHierarchyError } from "~/lib/hierarchy";
+import { recordInfraction as persistInfraction, type InfractionType } from "~/lib/infractions";
 import { useInteractionLog } from "~/lib/log-context";
 import { log } from "~/lib/logger";
-import { sendModLog } from "~/lib/mod-log";
+import { replyAndLog } from "~/lib/mod-reply";
 import type { Command } from "~/types";
 
 const SILENT_DESC = "Hide the confirmation from the channel (mod-log still fires)";
@@ -23,7 +23,6 @@ const AUDIT_FAILED_MESSAGE =
   "\n*Action completed, but writing the audit record failed — please tell a dev.*";
 const DM_SKIPPED_MESSAGE = "\n*DM skipped by moderator.*";
 
-type InfractionType = "ban" | "warn" | "kick" | "softban";
 type DmStatus = "sent" | "failed" | "skipped";
 
 export default {
@@ -103,15 +102,6 @@ export default {
   },
 } satisfies Command;
 
-async function trySendDm(user: User, embed: ReturnType<typeof dmEmbed>): Promise<boolean> {
-  try {
-    await user.send({ embeds: [embed] });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function sendModerationDm(params: {
   interaction: ChatInputCommandInteraction;
   targetUser: User;
@@ -152,10 +142,7 @@ function logModerationActionError(params: {
     targetId: params.targetId,
     moderatorId: params.moderatorId,
     ...(params.dmStatus ? { dmStatus: params.dmStatus } : {}),
-    error:
-      params.error instanceof Error
-        ? (params.error.stack ?? params.error.message)
-        : String(params.error),
+    error: formatError(params.error),
   });
 }
 
@@ -174,26 +161,22 @@ async function recordInfraction(params: {
   type: InfractionType;
   reason: string;
 }): Promise<boolean> {
-  try {
-    const dbUser = await ensureUser(params.targetUser);
-    await db.insert(infractions).values({
-      userId: dbUser.id,
-      moderatorId: params.moderatorId,
-      type: params.type,
-      reason: params.reason,
-    });
-    return true;
-  } catch (err) {
-    log.error({
-      action: "infraction-insert",
-      type: params.type,
-      targetId: params.targetUser.id,
-      moderatorId: params.moderatorId,
-      error: err instanceof Error ? (err.stack ?? err.message) : String(err),
-    });
-    useInteractionLog()?.set({ audit_persist: "failed" });
-    return false;
-  }
+  const persisted = await persistInfraction(params);
+  if (!persisted) useInteractionLog()?.set({ audit_persist: "failed" });
+  return persisted;
+}
+
+async function sendModActionResult(
+  interaction: ChatInputCommandInteraction,
+  guild: Guild,
+  baseOpts: Parameters<typeof modEmbed>[0],
+  silent: boolean,
+): Promise<void> {
+  const logEmbed = modEmbed({ ...baseOpts, moderator: interaction.user });
+  await replyAndLog(interaction, guild, {
+    reply: silent ? logEmbed : modEmbed(baseOpts),
+    log: logEmbed,
+  });
 }
 
 async function handleWarn(interaction: ChatInputCommandInteraction) {
@@ -240,11 +223,7 @@ async function handleWarn(interaction: ChatInputCommandInteraction) {
     fields: [{ name: "Reason", value: reason }],
   };
 
-  const logEmbed = modEmbed({ ...baseOpts, moderator: interaction.user });
-  const replyEmbed = silent ? logEmbed : modEmbed(baseOpts);
-
-  await interaction.editReply({ embeds: [replyEmbed] });
-  await sendModLog(guild, logEmbed);
+  await sendModActionResult(interaction, guild, baseOpts, silent);
 }
 
 async function handleKick(interaction: ChatInputCommandInteraction) {
@@ -318,11 +297,7 @@ async function handleKick(interaction: ChatInputCommandInteraction) {
     fields: [{ name: "Reason", value: reason }],
   };
 
-  const logEmbed = modEmbed({ ...baseOpts, moderator: interaction.user });
-  const replyEmbed = silent ? logEmbed : modEmbed(baseOpts);
-
-  await interaction.editReply({ embeds: [replyEmbed] });
-  await sendModLog(guild, logEmbed);
+  await sendModActionResult(interaction, guild, baseOpts, silent);
 }
 
 async function handleSoftban(interaction: ChatInputCommandInteraction) {
@@ -402,11 +377,7 @@ async function handleSoftban(interaction: ChatInputCommandInteraction) {
     fields: [{ name: "Reason", value: reason }],
   };
 
-  const logEmbed = modEmbed({ ...baseOpts, moderator: interaction.user });
-  const replyEmbed = silent ? logEmbed : modEmbed(baseOpts);
-
-  await interaction.editReply({ embeds: [replyEmbed] });
-  await sendModLog(guild, logEmbed);
+  await sendModActionResult(interaction, guild, baseOpts, silent);
 }
 
 async function handleBan(interaction: ChatInputCommandInteraction) {
@@ -485,9 +456,5 @@ async function handleBan(interaction: ChatInputCommandInteraction) {
     fields: [{ name: "Reason", value: reason }],
   };
 
-  const logEmbed = modEmbed({ ...baseOpts, moderator: interaction.user });
-  const replyEmbed = silent ? logEmbed : modEmbed(baseOpts);
-
-  await interaction.editReply({ embeds: [replyEmbed] });
-  await sendModLog(guild, logEmbed);
+  await sendModActionResult(interaction, guild, baseOpts, silent);
 }
