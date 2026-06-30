@@ -146,3 +146,69 @@ describe("/user info — counts reflect active infractions only", () => {
     expect(desc).toMatch(/\*\*2\*\* notes/);
   });
 });
+
+function extractInfractionButton(interaction: any): { label?: string; disabled?: boolean } {
+  const call = interaction.editReply.mock.calls.at(-1);
+  return call?.[0]?.components?.[0]?.components?.[0]?.data ?? {};
+}
+
+describe("/user info — infraction button reflects the full record", () => {
+  beforeEach(async () => {
+    await testEnv.client.batch(
+      ["DELETE FROM notes", "DELETE FROM infractions", "DELETE FROM users"],
+      "write",
+    );
+  });
+
+  test("kicks and softbans appear in the summary", async () => {
+    await seedUser("k-1");
+    await seedInfraction({ discordId: "k-1", type: "kick", active: true });
+    await seedInfraction({ discordId: "k-1", type: "softban", active: true });
+
+    const interaction = makeInfoInteraction("k-1");
+    await userCommand.execute(interaction);
+
+    const desc = extractDescription(interaction);
+    expect(desc).toMatch(/\*\*1\*\* kicks/);
+    expect(desc).toMatch(/\*\*1\*\* softbans/);
+  });
+
+  test("button is enabled for a kick-only user (drill-down would show it)", async () => {
+    await seedUser("k-2");
+    await seedInfraction({ discordId: "k-2", type: "kick", active: true });
+
+    const interaction = makeInfoInteraction("k-2");
+    await userCommand.execute(interaction);
+
+    const button = extractInfractionButton(interaction);
+    expect(button.label).toBe("Infractions (1)");
+    expect(button.disabled).toBe(false);
+  });
+
+  test("button counts the whole record, including removed infractions", async () => {
+    await seedUser("k-3");
+    await seedInfraction({ discordId: "k-3", type: "ban", active: true });
+    await seedInfraction({ discordId: "k-3", type: "warn", active: false }); // removed
+    await seedInfraction({ discordId: "k-3", type: "softban", active: true });
+
+    const interaction = makeInfoInteraction("k-3");
+    await userCommand.execute(interaction);
+
+    const desc = extractDescription(interaction);
+    expect(desc).toMatch(/\*\*1\*\* bans/);
+    expect(desc).toMatch(/\*\*0\*\* warnings/); // removed warn excluded from the active summary
+    expect(extractInfractionButton(interaction).label).toBe("Infractions (3)");
+  });
+
+  test("button is disabled when there are no infractions", async () => {
+    await seedUser("k-4");
+    await seedNote({ discordId: "k-4", content: "just a note" });
+
+    const interaction = makeInfoInteraction("k-4");
+    await userCommand.execute(interaction);
+
+    const button = extractInfractionButton(interaction);
+    expect(button.label).toBe("Infractions (0)");
+    expect(button.disabled).toBe(true);
+  });
+});
