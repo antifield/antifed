@@ -35,7 +35,11 @@ export default {
     .setName("page")
     .setDescription("Page the on-call team via Better Stack.")
     .addStringOption((o) =>
-      o.setName("reason").setDescription("Why you're paging on-call").setRequired(true),
+      o
+        .setName("reason")
+        .setDescription("Why you're paging on-call")
+        .setRequired(true)
+        .setMaxLength(1000),
     )
     .addBooleanOption((o) =>
       o.setName("critical").setDescription("Bypass Do Not Disturb on iOS (emergencies only)"),
@@ -73,6 +77,12 @@ export default {
       return;
     }
 
+    // Claim the cooldown before the network round-trip — otherwise two requests
+    // fired together both pass the check above and page on-call twice. Rolled
+    // back on the failure paths below so a page that never went out doesn't lock
+    // the user out of an immediate retry.
+    cooldowns.set(interaction.user.id, Date.now() + COOLDOWN_MS);
+
     const reason = interaction.options.getString("reason", true);
     const critical = interaction.options.getBoolean("critical") ?? false;
     const channelUrl =
@@ -87,6 +97,10 @@ export default {
     ];
     if (channelUrl) descriptionParts.push(`Channel: ${channelUrl}`);
 
+    // Once Better Stack confirms the page, the cooldown must stand even if a later
+    // step (building or sending the reply) throws — otherwise a post-delivery error
+    // would roll back the cooldown and let the user immediately page on-call again.
+    let pageDelivered = false;
     try {
       const response = await fetch(BETTERSTACK_INCIDENTS_URL, {
         method: "POST",
@@ -117,13 +131,14 @@ export default {
           response_body: body.slice(0, 200),
         });
         eventLog?.set({ outcome: "error", http_status: response.status });
+        cooldowns.delete(interaction.user.id); // page didn't go out — allow a retry
         await interaction.editReply({
           embeds: [errorEmbed(`Failed to page: ${response.status} ${response.statusText}`)],
         });
         return;
       }
 
-      cooldowns.set(interaction.user.id, Date.now() + COOLDOWN_MS);
+      pageDelivered = true;
       eventLog?.set({ outcome: "ok", http_status: response.status });
 
       const channels = critical ? "call, SMS, push, critical alert" : "call, SMS, push";
@@ -159,6 +174,9 @@ export default {
         error: formatError(err),
       });
       eventLog?.set({ outcome: "error", reason: "fetch_error" });
+      // Only roll back if the page never went out — a throw after Better Stack
+      // confirmed delivery must not clear the cooldown.
+      if (!pageDelivered) cooldowns.delete(interaction.user.id);
       await interaction.editReply({
         embeds: [errorEmbed("Failed to reach Better Stack.")],
       });
