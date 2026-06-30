@@ -39,6 +39,7 @@ function makeMessage(
     authorId?: string;
     noUsername?: boolean;
     channelId?: string;
+    threadParentId?: string;
     inGuild?: boolean;
     system?: boolean;
     bot?: boolean;
@@ -90,8 +91,16 @@ function makeMessage(
     roles: { highest: { position: 100 } },
   };
 
+  // Default channel is the honeypot text channel; threadParentId makes it a
+  // thread whose parent is that id, exercising the thread-coverage path.
+  const channel = {
+    isThread: () => opts.threadParentId !== undefined,
+    parentId: opts.threadParentId ?? null,
+  };
+
   const message = {
     channelId: opts.channelId ?? "honeypot-1",
+    channel,
     webhookId: opts.webhookId ?? null,
     system: opts.system ?? false,
     inGuild: () => opts.inGuild ?? true,
@@ -153,6 +162,20 @@ describe("honeypot auto-ban", () => {
 
   test("ignores messages in other channels", async () => {
     const { message, ban } = makeMessage({ channelId: "general-1" });
+    await messageCreate.execute(message as any);
+    expect(ban).not.toHaveBeenCalled();
+    expect(await testEnv.db.select().from(infractions).all()).toHaveLength(0);
+  });
+
+  test("bans a message in a thread under the honeypot channel", async () => {
+    const { message, ban } = makeMessage({ channelId: "thread-1", threadParentId: "honeypot-1" });
+    await messageCreate.execute(message as any);
+    expect(ban).toHaveBeenCalledTimes(1);
+    expect(await testEnv.db.select().from(infractions).all()).toHaveLength(1);
+  });
+
+  test("ignores a thread whose parent is not the honeypot channel", async () => {
+    const { message, ban } = makeMessage({ channelId: "thread-2", threadParentId: "general-1" });
     await messageCreate.execute(message as any);
     expect(ban).not.toHaveBeenCalled();
     expect(await testEnv.db.select().from(infractions).all()).toHaveLength(0);
