@@ -1,6 +1,6 @@
 # Antifed
 
-Antifed is the Discord moderation bot for the [Antifield](https://discord.gg/noid) server. It handles warnings, bans, staff-only notes, infraction history with paginated embeds, and Better Stack paging integration.
+Antifed is the Discord moderation bot for the [Antifield](https://discord.gg/noid) server. It handles warnings, bans, kicks, softbans, staff-only notes, infraction history with paginated embeds, Better Stack paging, and automated moderation (a honeypot auto-ban, returning-member alerts, and a live member-count presence).
 
 This bot does not include length-wise bans. We give all bans permanently with little to no chance of appeal.
 
@@ -10,10 +10,10 @@ This bot does not include length-wise bans. We give all bans permanently with li
 
 | Subcommand                                                       | Description                             | Permission       |
 | ---------------------------------------------------------------- | --------------------------------------- | ---------------- |
-| `/mod warn @user [reason] [silent?]`                             | Warn a user, DMs them the reason        | Moderate Members |
-| `/mod kick @user [reason] [silent?]`                             | Kick a user from the server             | Moderate Members |
-| `/mod softban @user [reason] [silent?]`                          | Ban + immediate unban to purge messages | Moderate Members |
-| `/mod ban @user [reason] [duration] [delete_messages] [silent?]` | Ban a user, DMs them before banning     | Moderate Members |
+| `/mod warn @user [reason] [no_dm?] [silent?]`                  | Warn a user, DMs them the reason         | Moderate Members |
+| `/mod kick @user [reason] [no_dm?] [silent?]`                  | Kick a user from the server              | Moderate Members |
+| `/mod softban @user [reason] [no_dm?] [silent?]`              | Ban + immediate unban to purge messages  | Moderate Members |
+| `/mod ban @user [reason] [delete_messages] [no_dm?] [silent?]` | Ban a user, DMs them before banning      | Moderate Members |
 
 ### `/infraction` - Infraction management
 
@@ -36,17 +36,25 @@ This bot does not include length-wise bans. We give all bans permanently with li
 
 | Subcommand           | Description                                               | Permission       |
 | -------------------- | --------------------------------------------------------- | ---------------- |
-| `/user info @user`   | Overview with ban/warn/note counts and drill-down buttons | Moderate Members |
+| `/user info @user`   | Overview with infraction (ban/warn/kick/softban) + note counts and drill-down buttons | Moderate Members |
 | `/user audit @staff` | View all moderation actions taken by a staff member       | Moderate Members |
 
 ### `/page` and `/botinfo`
 
 | Command                      | Description                                | Permission    |
 | ---------------------------- | ------------------------------------------ | ------------- |
-| `/page [reason] [critical?]` | Page via Better Stack                      | Administrator |
+| `/page [reason] [critical?]` | Page via Better Stack                      | Page role     |
 | `/botinfo`                   | Bot diagnostics (uptime, memory, db stats) | Dev only      |
 
-Reason is required for all `/mod` actions and is DM'd to the user. DM failure is shown in the confirmation embed. Confirmation is public in-channel by default; pass `silent: true` to keep it ephemeral. The mod-log always receives the full action regardless. Notes and infractions never expire, and are only manual removal.
+Reason is required for all `/mod` actions and is DM'd to the user (pass `no_dm: true` to skip the DM). DM failure is shown in the confirmation embed. Confirmation is public in-channel by default; pass `silent: true` to keep it ephemeral. The mod-log always receives the full action regardless. Notes and infractions never expire, and are removed only manually.
+
+## Automated behavior
+
+These run without a command and are configured via environment variables — each is inert when its variable is unset:
+
+- **Honeypot auto-ban** (`HONEYPOT_CHANNEL_ID`) — anyone who isn't staff, an admin, the server owner, or above the bot in the role hierarchy is auto-banned (with a 7-day message purge) the moment they post in the honeypot channel, or a thread under it. Bots, webhooks, and system messages are ignored. Failures are surfaced to the mod-log.
+- **Returning-member alert** (`LOG_CHANNEL_ID`) — when a member with any prior infraction (active or removed) rejoins, the mod-log gets a summary of their record.
+- **Member-count presence** — the bot's status shows `👀 N members`, refreshed every 30 minutes.
 
 ## Development
 
