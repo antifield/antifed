@@ -6,11 +6,10 @@ import { Colors } from "~/lib/constants";
 import { Cooldown } from "~/lib/cooldown";
 import { modEmbed } from "~/lib/embeds";
 import { formatError } from "~/lib/errors";
+import { INFRACTION_TYPES } from "~/lib/infractions";
 import { log } from "~/lib/logger";
 import { sendModLog } from "~/lib/mod-log";
 import type { Event } from "~/types";
-
-const INFRACTION_TYPES = ["ban", "warn", "kick", "softban"] as const;
 
 // Cap one alert per member per window: a member with a removed/kick/warn record
 // (an active ban can't rejoin) could otherwise leave and rejoin on a standing

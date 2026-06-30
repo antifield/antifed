@@ -5,7 +5,12 @@ import {
   type Message,
   PermissionFlagsBits,
 } from "discord.js";
-import { Colors, DM_FAILED_MESSAGE } from "~/lib/constants";
+import {
+  AUDIT_FAILED_MESSAGE,
+  Colors,
+  DM_FAILED_MESSAGE,
+  MESSAGE_PURGE_SECONDS,
+} from "~/lib/constants";
 import { Cooldown } from "~/lib/cooldown";
 import { trySendDm } from "~/lib/dm";
 import { dmEmbed, modEmbed } from "~/lib/embeds";
@@ -19,8 +24,6 @@ import { env } from "~/env";
 import type { Event } from "~/types";
 
 const BAN_REASON = "Suspected spam bot (posted in honeypot channel)";
-const PURGE_SECONDS = 7 * 86400; // wipe the spammer's last 7 days of messages on ban
-const AUDIT_FAILED_MESSAGE = "\n*Ban succeeded, but writing the audit record failed.*";
 
 // Tracks authors currently being processed so a burst of messages from one
 // spammer (which all arrive before the ban round-trips) results in a single
@@ -132,7 +135,7 @@ export default {
       try {
         await message.guild.members.ban(message.author, {
           reason: BAN_REASON,
-          deleteMessageSeconds: PURGE_SECONDS,
+          deleteMessageSeconds: MESSAGE_PURGE_SECONDS,
         });
       } catch (err) {
         log.error({

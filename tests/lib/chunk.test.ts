@@ -24,4 +24,9 @@ describe("chunk", () => {
   test("size of 1 yields one item per group", () => {
     expect(chunk(["a", "b", "c"], 1)).toEqual([["a"], ["b"], ["c"]]);
   });
+
+  test("throws on a non-positive size instead of looping forever", () => {
+    expect(() => chunk([1, 2], 0)).toThrow(RangeError);
+    expect(() => chunk([1, 2], -1)).toThrow();
+  });
 });

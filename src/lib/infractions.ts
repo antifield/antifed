@@ -5,7 +5,8 @@ import { ensureUser } from "~/lib/ensure-user";
 import { formatError } from "~/lib/errors";
 import { log } from "~/lib/logger";
 
-export type InfractionType = "ban" | "warn" | "kick" | "softban";
+export const INFRACTION_TYPES = ["ban", "warn", "kick", "softban"] as const;
+export type InfractionType = (typeof INFRACTION_TYPES)[number];
 
 // Resolves (or creates) the target's user row and writes an infraction record.
 // Returns false and logs on failure so callers can surface an "action done,

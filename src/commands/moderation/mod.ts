@@ -6,12 +6,17 @@ import {
   type Guild,
   type User,
 } from "discord.js";
-import { Colors, DM_FAILED_MESSAGE } from "~/lib/constants";
+import {
+  AUDIT_FAILED_MESSAGE,
+  Colors,
+  DM_FAILED_MESSAGE,
+  MESSAGE_PURGE_SECONDS,
+} from "~/lib/constants";
 import { trySendDm } from "~/lib/dm";
 import { dmEmbed, errorEmbed, modEmbed } from "~/lib/embeds";
 import { formatError } from "~/lib/errors";
 import { canModerate, formatHierarchyError } from "~/lib/hierarchy";
-import { recordInfraction as persistInfraction, type InfractionType } from "~/lib/infractions";
+import { recordInfraction, type InfractionType } from "~/lib/infractions";
 import { useInteractionLog } from "~/lib/log-context";
 import { log } from "~/lib/logger";
 import { replyAndLog } from "~/lib/mod-reply";
@@ -19,8 +24,6 @@ import type { Command } from "~/types";
 
 const SILENT_DESC = "Hide the confirmation from the channel (mod-log still fires)";
 const NO_DM_DESC = "Do not DM the user about this action";
-const AUDIT_FAILED_MESSAGE =
-  "\n*Action completed, but writing the audit record failed — please tell a dev.*";
 const DM_SKIPPED_MESSAGE = "\n*DM skipped by moderator.*";
 
 type DmStatus = "sent" | "failed" | "skipped";
@@ -155,13 +158,13 @@ async function deferFor(interaction: ChatInputCommandInteraction, silent: boolea
   else await interaction.deferReply();
 }
 
-async function recordInfraction(params: {
+async function recordInfractionWithAudit(params: {
   targetUser: User;
   moderatorId: string;
   type: InfractionType;
   reason: string;
 }): Promise<boolean> {
-  const persisted = await persistInfraction(params);
+  const persisted = await recordInfraction(params);
   if (!persisted) useInteractionLog()?.set({ audit_persist: "failed" });
   return persisted;
 }
@@ -177,6 +180,38 @@ async function sendModActionResult(
     reply: silent ? logEmbed : modEmbed(baseOpts),
     log: logEmbed,
   });
+}
+
+// The post-action tail shared by every handler: assemble the result description
+// (with DM/audit notes), wrap it in the embed options, and reply + mod-log it.
+async function finishModAction(params: {
+  interaction: ChatInputCommandInteraction;
+  guild: Guild;
+  silent: boolean;
+  title: string;
+  color: number;
+  successLine: string;
+  targetUser: User;
+  reason: string;
+  dmStatus: DmStatus;
+  persisted: boolean;
+}): Promise<void> {
+  const description = [params.successLine];
+  addDmStatus(description, params.dmStatus);
+  if (!params.persisted) description.push(AUDIT_FAILED_MESSAGE);
+
+  await sendModActionResult(
+    params.interaction,
+    params.guild,
+    {
+      title: params.title,
+      description: description.join(""),
+      color: params.color,
+      target: params.targetUser,
+      fields: [{ name: "Reason", value: params.reason }],
+    },
+    params.silent,
+  );
 }
 
 async function handleWarn(interaction: ChatInputCommandInteraction) {
@@ -204,26 +239,25 @@ async function handleWarn(interaction: ChatInputCommandInteraction) {
     guild,
   });
 
-  const persisted = await recordInfraction({
+  const persisted = await recordInfractionWithAudit({
     targetUser,
     moderatorId: interaction.user.id,
     type: "warn",
     reason,
   });
 
-  const description = [`**${targetUser.username}** has been warned.`];
-  addDmStatus(description, dmStatus);
-  if (!persisted) description.push(AUDIT_FAILED_MESSAGE);
-
-  const baseOpts = {
+  await finishModAction({
+    interaction,
+    guild,
+    silent,
     title: "User Warned",
-    description: description.join(""),
     color: Colors.Warn,
-    target: targetUser,
-    fields: [{ name: "Reason", value: reason }],
-  };
-
-  await sendModActionResult(interaction, guild, baseOpts, silent);
+    successLine: `**${targetUser.username}** has been warned.`,
+    targetUser,
+    reason,
+    dmStatus,
+    persisted,
+  });
 }
 
 async function handleKick(interaction: ChatInputCommandInteraction) {
@@ -278,26 +312,25 @@ async function handleKick(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const persisted = await recordInfraction({
+  const persisted = await recordInfractionWithAudit({
     targetUser,
     moderatorId: interaction.user.id,
     type: "kick",
     reason,
   });
 
-  const description = [`**${targetUser.username}** has been kicked.`];
-  addDmStatus(description, dmStatus);
-  if (!persisted) description.push(AUDIT_FAILED_MESSAGE);
-
-  const baseOpts = {
+  await finishModAction({
+    interaction,
+    guild,
+    silent,
     title: "User Kicked",
-    description: description.join(""),
     color: Colors.Ban,
-    target: targetUser,
-    fields: [{ name: "Reason", value: reason }],
-  };
-
-  await sendModActionResult(interaction, guild, baseOpts, silent);
+    successLine: `**${targetUser.username}** has been kicked.`,
+    targetUser,
+    reason,
+    dmStatus,
+    persisted,
+  });
 }
 
 async function handleSoftban(interaction: ChatInputCommandInteraction) {
@@ -339,7 +372,7 @@ async function handleSoftban(interaction: ChatInputCommandInteraction) {
   try {
     await guild.members.ban(targetUser, {
       reason: `Softban | ${reason} | ${interaction.user.username}`,
-      deleteMessageSeconds: 7 * 86400,
+      deleteMessageSeconds: MESSAGE_PURGE_SECONDS,
     });
     await guild.members.unban(targetUser, "Softban - immediate unban");
   } catch (err) {
@@ -358,26 +391,25 @@ async function handleSoftban(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const persisted = await recordInfraction({
+  const persisted = await recordInfractionWithAudit({
     targetUser,
     moderatorId: interaction.user.id,
     type: "softban",
     reason,
   });
 
-  const description = [`**${targetUser.username}** has been softbanned (messages purged).`];
-  addDmStatus(description, dmStatus);
-  if (!persisted) description.push(AUDIT_FAILED_MESSAGE);
-
-  const baseOpts = {
+  await finishModAction({
+    interaction,
+    guild,
+    silent,
     title: "User Softbanned",
-    description: description.join(""),
     color: Colors.Ban,
-    target: targetUser,
-    fields: [{ name: "Reason", value: reason }],
-  };
-
-  await sendModActionResult(interaction, guild, baseOpts, silent);
+    successLine: `**${targetUser.username}** has been softbanned (messages purged).`,
+    targetUser,
+    reason,
+    dmStatus,
+    persisted,
+  });
 }
 
 async function handleBan(interaction: ChatInputCommandInteraction) {
@@ -437,24 +469,23 @@ async function handleBan(interaction: ChatInputCommandInteraction) {
     return;
   }
 
-  const persisted = await recordInfraction({
+  const persisted = await recordInfractionWithAudit({
     targetUser,
     moderatorId: interaction.user.id,
     type: "ban",
     reason,
   });
 
-  const description = [`**${targetUser.username}** has been banned.`];
-  addDmStatus(description, dmStatus);
-  if (!persisted) description.push(AUDIT_FAILED_MESSAGE);
-
-  const baseOpts = {
+  await finishModAction({
+    interaction,
+    guild,
+    silent,
     title: "User Banned",
-    description: description.join(""),
     color: Colors.Ban,
-    target: targetUser,
-    fields: [{ name: "Reason", value: reason }],
-  };
-
-  await sendModActionResult(interaction, guild, baseOpts, silent);
+    successLine: `**${targetUser.username}** has been banned.`,
+    targetUser,
+    reason,
+    dmStatus,
+    persisted,
+  });
 }
