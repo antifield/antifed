@@ -9,7 +9,7 @@ import {
   SlashCommandBuilder,
   type ChatInputCommandInteraction,
 } from "discord.js";
-import { and, count, desc, eq, inArray } from "drizzle-orm";
+import { count, desc, eq, inArray } from "drizzle-orm";
 import { db } from "~/db";
 import { infractions, notes, users } from "~/db/schema";
 import { chunk } from "~/lib/chunk";
@@ -64,38 +64,31 @@ async function handleInfo(interaction: ChatInputCommandInteraction) {
 
   let bans = 0;
   let warns = 0;
+  let kicks = 0;
+  let softbans = 0;
   let noteCount = 0;
+  let totalInfractions = 0;
 
   if (dbUser) {
-    // Counts reflect currently-active infractions only. A user whose infractions
-    // have been `/infraction remove`d shows 0 bans/warns, and the embed color
-    // drops back to Info — otherwise removed actions would permanently mark the
-    // profile red.
-    const [banRow, warnRow, noteRow] = await Promise.all([
+    // The per-type counts below reflect currently-active infractions only — a user
+    // whose infractions were `/infraction remove`d shows 0 and the color drops back
+    // to Info, so removed actions don't permanently mark the profile. The button +
+    // drill-down, however, cover the whole record (every type, active or removed),
+    // so `totalInfractions` counts all rows.
+    const [infractionRows, noteRow] = await Promise.all([
       db
-        .select({ value: count() })
+        .select({ type: infractions.type, active: infractions.active })
         .from(infractions)
-        .where(
-          and(
-            eq(infractions.userId, dbUser.id),
-            eq(infractions.type, "ban"),
-            eq(infractions.active, true),
-          ),
-        ),
-      db
-        .select({ value: count() })
-        .from(infractions)
-        .where(
-          and(
-            eq(infractions.userId, dbUser.id),
-            eq(infractions.type, "warn"),
-            eq(infractions.active, true),
-          ),
-        ),
+        .where(eq(infractions.userId, dbUser.id)),
       db.select({ value: count() }).from(notes).where(eq(notes.userId, dbUser.id)),
     ]);
-    bans = banRow[0]?.value ?? 0;
-    warns = warnRow[0]?.value ?? 0;
+    totalInfractions = infractionRows.length;
+    const activeOfType = (type: "ban" | "warn" | "kick" | "softban") =>
+      infractionRows.filter((r) => r.type === type && r.active).length;
+    bans = activeOfType("ban");
+    warns = activeOfType("warn");
+    kicks = activeOfType("kick");
+    softbans = activeOfType("softban");
     noteCount = noteRow[0]?.value ?? 0;
   }
 
@@ -107,7 +100,7 @@ async function handleInfo(interaction: ChatInputCommandInteraction) {
     "",
     `Created <t:${createdTs}:R> \u2022 Joined ${joinedTs ? `<t:${joinedTs}:R>` : "N/A"}`,
     "",
-    `**${bans}** bans \u2022 **${warns}** warnings \u2022 **${noteCount}** notes`,
+    `**${bans}** bans \u2022 **${warns}** warnings \u2022 **${kicks}** kicks \u2022 **${softbans}** softbans \u2022 **${noteCount}** notes`,
   ];
 
   const embed = new EmbedBuilder()
@@ -116,7 +109,9 @@ async function handleInfo(interaction: ChatInputCommandInteraction) {
       iconURL: targetUser.displayAvatarURL(),
     })
     .setThumbnail(targetUser.displayAvatarURL())
-    .setColor(bans > 0 ? Colors.Ban : warns > 0 ? Colors.Warn : Colors.Info)
+    .setColor(
+      bans > 0 || softbans > 0 ? Colors.Ban : warns > 0 || kicks > 0 ? Colors.Warn : Colors.Info,
+    )
     .setDescription(lines.join("\n"))
     .setTimestamp();
 
@@ -124,9 +119,9 @@ async function handleInfo(interaction: ChatInputCommandInteraction) {
   const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
     new ButtonBuilder()
       .setCustomId(`${nonce}_infractions`)
-      .setLabel(`Infractions (${bans + warns})`)
+      .setLabel(`Infractions (${totalInfractions})`)
       .setStyle(ButtonStyle.Secondary)
-      .setDisabled(bans + warns === 0),
+      .setDisabled(totalInfractions === 0),
     new ButtonBuilder()
       .setCustomId(`${nonce}_notes`)
       .setLabel(`Notes (${noteCount})`)
