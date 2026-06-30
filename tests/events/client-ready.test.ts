@@ -27,13 +27,15 @@ describe("client-ready presence", () => {
   test("sets a Watching member-count activity", () => {
     const { client, setActivity } = makeClient({ memberCount: 6700 });
     setMemberCountPresence(client as any);
-    expect(setActivity).toHaveBeenCalledWith("6,700 members", { type: ActivityType.Watching });
+    expect(setActivity).toHaveBeenCalledWith("👀 6,700 members", { type: ActivityType.Watching });
   });
 
   test("formats large counts with thousands separators", () => {
     const { client, setActivity } = makeClient({ memberCount: 1234567 });
     setMemberCountPresence(client as any);
-    expect(setActivity).toHaveBeenCalledWith("1,234,567 members", { type: ActivityType.Watching });
+    expect(setActivity).toHaveBeenCalledWith("👀 1,234,567 members", {
+      type: ActivityType.Watching,
+    });
   });
 
   test("skips and warns when the guild is not cached", () => {
