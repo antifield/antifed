@@ -70,14 +70,15 @@ export default {
         modEmbed({
           title: "Flagged Member Rejoined",
           description: [
-            `<@${member.id}> \`${member.id}\` rejoined — they have a prior record.`,
-            "",
+            `<@${member.id}> \`${member.id}\``,
             `Account created <t:${createdTs}:R> • Last actioned <t:${lastActionedTs}:R>`,
             `**Record:** ${summary}${noteSuffix}`,
           ].join("\n"),
           color: Colors.Warn,
           target: member.user,
-          fields: [{ name: `Most recent — ${mostRecent.type}`, value: mostRecent.reason || "—" }],
+          fields: [
+            { name: `Most recent (${mostRecent.type})`, value: mostRecent.reason || "(none)" },
+          ],
         }),
       );
 
