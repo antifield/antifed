@@ -47,6 +47,8 @@ function makeMessage(
     isOwner?: boolean;
     isAdmin?: boolean;
     memberRolePosition?: number;
+    memberNull?: boolean;
+    fetchImpl?: (id?: string) => Promise<unknown>;
     banImpl?: (user: unknown, options?: BanOptions) => Promise<void>;
     sendImpl?: () => Promise<void>;
   } = {},
@@ -73,10 +75,13 @@ function makeMessage(
     permissions: { has: () => opts.isAdmin ?? false },
   };
 
+  // When message.member is null (uncached), the handler falls back to
+  // guild.members.fetch; default it to resolve the same member object.
+  const memberFetch = mock(opts.fetchImpl ?? (async (_id?: string) => member));
   const guild = {
     name: "Test Guild",
     ownerId,
-    members: { ban, me: undefined as unknown },
+    members: { ban, me: undefined as unknown, fetch: memberFetch },
   };
   // The bot's own GuildMember, used by canModerate for the hierarchy check.
   guild.members.me = {
@@ -91,7 +96,7 @@ function makeMessage(
     system: opts.system ?? false,
     inGuild: () => opts.inGuild ?? true,
     author,
-    member,
+    member: opts.memberNull ? null : member,
     client: {
       user: {
         id: "bot-1",
@@ -102,7 +107,7 @@ function makeMessage(
     guild,
   };
 
-  return { message, author, ban };
+  return { message, author, ban, memberFetch };
 }
 
 beforeEach(async () => {
@@ -258,7 +263,7 @@ describe("honeypot auto-ban", () => {
     expect(embed?.data?.description).toContain("Could not DM");
   });
 
-  test("logs and skips the record when the ban itself fails", async () => {
+  test("posts an auto-ban-failed mod-log and skips the record when the ban fails", async () => {
     const { message, ban } = makeMessage({
       banImpl: async () => {
         throw new Error("Missing Permissions");
@@ -269,10 +274,59 @@ describe("honeypot auto-ban", () => {
 
     expect(ban).toHaveBeenCalledTimes(1);
     expect(await testEnv.db.select().from(infractions).all()).toHaveLength(0);
-    expect(sendModLog).not.toHaveBeenCalled();
     expect(logError).toHaveBeenCalledWith(
       expect.objectContaining({ action: "honeypot-ban", status: "ban_failed" }),
     );
+    expect(sendModLog).toHaveBeenCalledTimes(1);
+    const embed = sendModLog.mock.calls[0]?.[1] as {
+      data?: { author?: { name?: string }; description?: string };
+    };
+    expect(embed?.data?.author?.name).toBe("Auto-Ban Failed");
+    expect(embed?.data?.description).toContain("manual action needed");
+  });
+
+  test("resolves an uncached member via fetch and bans a non-staff author", async () => {
+    const { message, ban, memberFetch } = makeMessage({ memberNull: true });
+
+    await messageCreate.execute(message as any);
+
+    expect(memberFetch).toHaveBeenCalledTimes(1);
+    expect(ban).toHaveBeenCalledTimes(1);
+    expect(await testEnv.db.select().from(infractions).all()).toHaveLength(1);
+  });
+
+  test("exempts an uncached member who resolves to a staff role", async () => {
+    const { message, ban, memberFetch } = makeMessage({ memberNull: true, roleIds: ["mod-role"] });
+
+    await messageCreate.execute(message as any);
+
+    expect(memberFetch).toHaveBeenCalledTimes(1);
+    expect(ban).not.toHaveBeenCalled();
+    expect(await testEnv.db.select().from(infractions).all()).toHaveLength(0);
+  });
+
+  test("skips and warns when an uncached member cannot be resolved", async () => {
+    const { message, ban, author } = makeMessage({
+      memberNull: true,
+      fetchImpl: async () => {
+        throw new Error("Unknown Member");
+      },
+    });
+
+    await messageCreate.execute(message as any);
+
+    expect(ban).not.toHaveBeenCalled();
+    expect(author.send).not.toHaveBeenCalled();
+    expect(await testEnv.db.select().from(infractions).all()).toHaveLength(0);
+    expect(logWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "honeypot-ban", status: "member_unresolved" }),
+    );
+    expect(sendModLog).toHaveBeenCalledTimes(1);
+    const embed = sendModLog.mock.calls[0]?.[1] as {
+      data?: { author?: { name?: string }; description?: string };
+    };
+    expect(embed?.data?.author?.name).toBe("Auto-Ban Skipped");
+    expect(embed?.data?.description).toContain("Review manually");
   });
 
   test("keeps the ban when writing the audit record fails", async () => {

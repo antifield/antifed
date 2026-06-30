@@ -1,4 +1,10 @@
-import { Events, type Message, PermissionFlagsBits } from "discord.js";
+import {
+  Events,
+  type Guild,
+  type GuildMember,
+  type Message,
+  PermissionFlagsBits,
+} from "discord.js";
 import { Colors, DM_FAILED_MESSAGE } from "~/lib/constants";
 import { trySendDm } from "~/lib/dm";
 import { dmEmbed, modEmbed } from "~/lib/embeds";
@@ -20,30 +26,30 @@ const AUDIT_FAILED_MESSAGE = "\n*Ban succeeded, but writing the audit record fai
 // ban, DM, and infraction row rather than one per message.
 const inFlight = new Set<string>();
 
-// A message worth banning for: a guild member posting in the honeypot channel
-// who isn't us, a webhook, a system event, or privileged (owner, admin, staff,
-// or anyone the bot couldn't ban anyway). The channel check is first because it
-// runs on every message in the server; the rest only on a hit.
+// Structural gate: a non-system, non-webhook message in the honeypot channel
+// from a guild member who isn't us or the guild owner. Member-dependent
+// exemptions (staff/admin/hierarchy) are checked separately in execute() once
+// the member is resolved, since that can require an async fetch. The owner check
+// lives here (by author id) so it holds even when the member object is uncached.
+// The channel check is first because it runs on every message in the server.
 function isHoneypotHit(message: Message, honeypotChannelId: string): message is Message<true> {
   if (message.channelId !== honeypotChannelId) return false;
   // inGuild() gates every message.guild access below — it is what makes the
   // Message<true> narrowing sound, so it must stay ahead of those reads.
   if (!message.inGuild() || message.system || message.webhookId) return false;
   if (message.author.id === message.client.user?.id) return false;
-
-  // Never auto-ban a privileged member — these mirror the guards on /mod ban so
-  // the honeypot can't act on someone the manual command itself would refuse to
-  // touch. The owner check uses the author id so it holds even when the member
-  // object is uncached; canModerate covers owner + role hierarchy + the bot
-  // itself, and staff roles are checked separately because they can sit below
-  // the bot in the hierarchy (where canModerate alone would allow the ban).
   if (message.author.id === message.guild.ownerId) return false;
-  const member = message.member;
-  if (memberHasStaffRole(member)) return false;
-  if (member?.permissions.has(PermissionFlagsBits.Administrator)) return false;
-  const me = message.guild.members.me;
-  if (me && member && !canModerate(me, member)) return false;
   return true;
+}
+
+// Members the honeypot must never auto-ban: staff, admins, or anyone the bot
+// couldn't ban anyway (role hierarchy). Mirrors the guards on /mod ban so the
+// trap can't act on someone the manual command would itself refuse to touch.
+function isPrivilegedMember(guild: Guild, member: GuildMember): boolean {
+  if (memberHasStaffRole(member)) return true;
+  if (member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+  const me = guild.members.me;
+  return me ? !canModerate(me, member) : false;
 }
 
 export default {
@@ -58,8 +64,45 @@ export default {
     const botUser = message.client.user;
     if (!botUser) return;
 
+    // Claim the author synchronously, before any await, so a burst of messages
+    // dedupes to a single ban even while the steps below are in flight.
     inFlight.add(message.author.id);
     try {
+      // Resolve the member so the privilege exemptions run against real roles and
+      // permissions. message.member is normally populated for guild messages but
+      // can be null when uncached; fetch it then, and if even that fails, skip —
+      // a permanent ban must never act on a member we couldn't verify.
+      let fetchError: unknown;
+      const member =
+        message.member ??
+        (await message.guild.members.fetch(message.author.id).catch((err: unknown) => {
+          fetchError = err;
+          return null;
+        }));
+      if (!member) {
+        log.warn({
+          action: "honeypot-ban",
+          status: "member_unresolved",
+          targetId: message.author.id,
+          error: formatError(fetchError),
+        });
+        // Same visibility principle as the ban-failure path: a honeypot hit we
+        // couldn't act on must not vanish silently. Tell staff it was skipped.
+        await sendModLog(
+          message.guild,
+          modEmbed({
+            title: "Auto-Ban Skipped",
+            description: `**${message.author.username}** posted in the honeypot channel, but their member record couldn't be resolved — the auto-ban was **skipped**. Review manually.`,
+            color: Colors.Warn,
+            moderator: botUser,
+            target: message.author,
+            fields: [{ name: "Reason", value: BAN_REASON }],
+          }),
+        );
+        return;
+      }
+      if (isPrivilegedMember(message.guild, member)) return;
+
       // DM before the ban so the user still shares a guild with us and the
       // message can actually be delivered. trySendDm logs any failure.
       const dmStatus = (await trySendDm(
@@ -87,6 +130,28 @@ export default {
           dmStatus,
           error: formatError(err),
         });
+        // Surface the failure where staff actually look. Without this the trap
+        // silently no-ops on a permission/hierarchy/API error while the user has
+        // already been told (via the DM above) that they were banned.
+        const dmNote =
+          dmStatus === "sent" ? "\n*The user was already DM'd that they were banned.*" : "";
+        await sendModLog(
+          message.guild,
+          modEmbed({
+            title: "Auto-Ban Failed",
+            description: `**${message.author.username}** posted in the honeypot channel, but the auto-ban failed — **manual action needed**.${dmNote}`,
+            color: Colors.Ban,
+            moderator: botUser,
+            target: message.author,
+            fields: [
+              { name: "Reason", value: BAN_REASON },
+              {
+                name: "Error",
+                value: (err instanceof Error ? err.message : String(err)) || "unknown error",
+              },
+            ],
+          }),
+        );
         return;
       }
 
