@@ -62,23 +62,29 @@ These run without a command and are configured via environment variables — eac
 # copy env, fill in credentials
 cp .env.example .env
 
-# (DOCKER IS NEEDED) start libsql, push schema, run
-make dev
+# (DOCKER IS NEEDED) start libsql, wait for health, push schema
+docker compose -f docker-compose.dev.yml up -d --force-recreate
+bun scripts/wait-for-services.ts
+bun run db:push
+
+# run the bot with hot reload (drizzle studio optional)
+bun run --hot src/index.ts
+bun x drizzle-kit studio
+
+# tear the containers down when done
+docker compose -f docker-compose.dev.yml down
 ```
 
 ### Services
 
 - libsql: `localhost:9120`
 
-### Make targets
+### Scripts
 
-- `make dev` - Full pipeline: Docker containers, health checks, schema push, bot (cleans up on exit)
-- `make dev-noinf` - Bot only (assumes Docker already running)
-- `make dev-infra` / `make dev-infra-stop` - Docker containers up/down
-- `make check` - Lint and format with oxlint + oxfmt
-- `make test` (or `bun test`) - Run test suite
-- `make db-push` / `make db-generate` / `make db-migrate` / `make db-studio` - Drizzle helpers
-- `make help` - List all targets
+- `bun run --hot src/index.ts` - Run the bot with hot reload
+- `bun run check` / `bun run format` - Lint + format check / apply (oxlint + oxfmt)
+- `bun test` - Run the test suite
+- `bun run db:push` / `db:generate` / `db:migrate` / `db:studio` - Drizzle helpers
 
 ### Stack
 
