@@ -27,13 +27,19 @@ const AUDIT_FAILED_MESSAGE = "\n*Ban succeeded, but writing the audit record fai
 const inFlight = new Set<string>();
 
 // Structural gate: a non-system, non-webhook message in the honeypot channel
-// from a guild member who isn't us or the guild owner. Member-dependent
-// exemptions (staff/admin/hierarchy) are checked separately in execute() once
-// the member is resolved, since that can require an async fetch. The owner check
-// lives here (by author id) so it holds even when the member object is uncached.
-// The channel check is first because it runs on every message in the server.
+// (or a thread under it) from a guild member who isn't us or the guild owner.
+// Member-dependent exemptions (staff/admin/hierarchy) are checked separately in
+// execute() once the member is resolved, since that can require an async fetch.
+// The owner check lives here (by author id) so it holds even when the member
+// object is uncached. The channel check is first — it runs on every message.
 function isHoneypotHit(message: Message, honeypotChannelId: string): message is Message<true> {
-  if (message.channelId !== honeypotChannelId) return false;
+  // A thread message carries the thread's own id in channelId, so match the
+  // parent channel too — otherwise the trap is bypassed by replying in-thread.
+  const channel = message.channel;
+  const inHoneypot =
+    message.channelId === honeypotChannelId ||
+    (channel?.isThread() === true && channel.parentId === honeypotChannelId);
+  if (!inHoneypot) return false;
   // inGuild() gates every message.guild access below — it is what makes the
   // Message<true> narrowing sound, so it must stay ahead of those reads.
   if (!message.inGuild() || message.system || message.webhookId) return false;
