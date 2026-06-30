@@ -8,12 +8,12 @@ This bot does not include length-wise bans. We give all bans permanently with li
 
 ### `/mod` - Moderation actions
 
-| Subcommand                                                       | Description                             | Permission       |
-| ---------------------------------------------------------------- | --------------------------------------- | ---------------- |
-| `/mod warn @user [reason] [no_dm?] [silent?]`                  | Warn a user, DMs them the reason         | Moderate Members |
-| `/mod kick @user [reason] [no_dm?] [silent?]`                  | Kick a user from the server              | Moderate Members |
-| `/mod softban @user [reason] [no_dm?] [silent?]`              | Ban + immediate unban to purge messages  | Moderate Members |
-| `/mod ban @user [reason] [delete_messages] [no_dm?] [silent?]` | Ban a user, DMs them before banning      | Moderate Members |
+| Subcommand                                                     | Description                             | Permission       |
+| -------------------------------------------------------------- | --------------------------------------- | ---------------- |
+| `/mod warn @user [reason] [no_dm?] [silent?]`                  | Warn a user, DMs them the reason        | Moderate Members |
+| `/mod kick @user [reason] [no_dm?] [silent?]`                  | Kick a user from the server             | Moderate Members |
+| `/mod softban @user [reason] [no_dm?] [silent?]`               | Ban + immediate unban to purge messages | Moderate Members |
+| `/mod ban @user [reason] [delete_messages] [no_dm?] [silent?]` | Ban a user, DMs them before banning     | Moderate Members |
 
 ### `/infraction` - Infraction management
 
@@ -34,17 +34,17 @@ This bot does not include length-wise bans. We give all bans permanently with li
 
 ### `/user` - User lookup
 
-| Subcommand           | Description                                               | Permission       |
-| -------------------- | --------------------------------------------------------- | ---------------- |
+| Subcommand           | Description                                                                           | Permission       |
+| -------------------- | ------------------------------------------------------------------------------------- | ---------------- |
 | `/user info @user`   | Overview with infraction (ban/warn/kick/softban) + note counts and drill-down buttons | Moderate Members |
-| `/user audit @staff` | View all moderation actions taken by a staff member       | Moderate Members |
+| `/user audit @staff` | View all moderation actions taken by a staff member                                   | Moderate Members |
 
 ### `/page` and `/botinfo`
 
-| Command                      | Description                                | Permission    |
-| ---------------------------- | ------------------------------------------ | ------------- |
-| `/page [reason] [critical?]` | Page via Better Stack                      | Page role     |
-| `/botinfo`                   | Bot diagnostics (uptime, memory, db stats) | Dev only      |
+| Command                      | Description                                | Permission |
+| ---------------------------- | ------------------------------------------ | ---------- |
+| `/page [reason] [critical?]` | Page via Better Stack                      | Page role  |
+| `/botinfo`                   | Bot diagnostics (uptime, memory, db stats) | Dev only   |
 
 Reason is required for all `/mod` actions and is DM'd to the user (pass `no_dm: true` to skip the DM). DM failure is shown in the confirmation embed. Confirmation is public in-channel by default; pass `silent: true` to keep it ephemeral. The mod-log always receives the full action regardless. Notes and infractions never expire, and are removed only manually.
 
