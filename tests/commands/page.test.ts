@@ -52,7 +52,7 @@ beforeEach(() => {
 
 type ReplyPayload = { embeds?: { data?: { description?: string } }[] };
 
-function makeInteraction(userId: string, reason = "prod is down") {
+function makeInteraction(userId: string, reason = "prod is down", critical = false) {
   const replies: ReplyPayload[] = [];
   const interaction = {
     user: { id: userId, username: "pager", displayAvatarURL: () => "https://example.com/p.png" },
@@ -66,7 +66,7 @@ function makeInteraction(userId: string, reason = "prod is down") {
     }),
     options: {
       getString: (_name: string, _required?: boolean) => reason,
-      getBoolean: (_name: string) => null,
+      getBoolean: (name: string) => (name === "critical" ? critical : null),
     },
   };
   return { interaction, replies };
@@ -172,5 +172,40 @@ describe("/page cooldown", () => {
     const second = makeInteraction("post-1");
     await pageCommand.execute(second.interaction as any);
     expect(lastDescription(second.replies)).toContain("cooldown");
+  });
+});
+
+describe("/page execute paths", () => {
+  test("rejects when Better Stack is not configured", async () => {
+    const prev = pageEnv.BETTERSTACK_API_TOKEN;
+    pageEnv.BETTERSTACK_API_TOKEN = undefined as unknown as string;
+    try {
+      const { interaction, replies } = makeInteraction("notcfg-1");
+      await pageCommand.execute(interaction as any);
+      expect(lastDescription(replies)).toContain("not configured");
+      expect(fetchCalls).toBe(0);
+    } finally {
+      pageEnv.BETTERSTACK_API_TOKEN = prev;
+    }
+  });
+
+  test("reports a network failure and clears the cooldown for a retry", async () => {
+    fetchImpl = async () => {
+      throw new Error("ECONNRESET");
+    };
+    const first = makeInteraction("neterr-1");
+    await pageCommand.execute(first.interaction as any);
+    expect(lastDescription(first.replies)).toContain("Failed to reach Better Stack");
+
+    fetchImpl = async () => new Response(null, { status: 201 });
+    const second = makeInteraction("neterr-1");
+    await pageCommand.execute(second.interaction as any);
+    expect(lastDescription(second.replies)).toContain("paged");
+  });
+
+  test("a critical page notes the critical alert channel", async () => {
+    const { interaction, replies } = makeInteraction("crit-1", "everything is on fire", true);
+    await pageCommand.execute(interaction as any);
+    expect(lastDescription(replies)).toContain("critical alert");
   });
 });
