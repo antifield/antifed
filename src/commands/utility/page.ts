@@ -6,6 +6,7 @@ import {
 } from "discord.js";
 import { env } from "~/env";
 import { Colors } from "~/lib/constants";
+import { Cooldown } from "~/lib/cooldown";
 import { errorEmbed, successEmbed } from "~/lib/embeds";
 import { formatError } from "~/lib/errors";
 import { useInteractionLog } from "~/lib/log-context";
@@ -17,18 +18,7 @@ const PAGE_FETCH_TIMEOUT_MS = 10_000;
 const BETTERSTACK_INCIDENTS_URL = "https://uptime.betterstack.com/api/v2/incidents";
 const COOLDOWN_MS = 60_000;
 
-const cooldowns = new Map<string, number>();
-
-function cooldownRemainingMs(userId: string): number {
-  const expiresAt = cooldowns.get(userId);
-  if (!expiresAt) return 0;
-  const remaining = expiresAt - Date.now();
-  if (remaining <= 0) {
-    cooldowns.delete(userId);
-    return 0;
-  }
-  return remaining;
-}
+const cooldown = new Cooldown(COOLDOWN_MS);
 
 export default {
   data: new SlashCommandBuilder()
@@ -68,7 +58,7 @@ export default {
       return;
     }
 
-    const remaining = cooldownRemainingMs(interaction.user.id);
+    const remaining = cooldown.remaining(interaction.user.id);
     if (remaining > 0) {
       eventLog?.set({ outcome: "cooldown", cooldown_remaining_ms: remaining });
       await interaction.editReply({
@@ -81,7 +71,7 @@ export default {
     // fired together both pass the check above and page on-call twice. Rolled
     // back on the failure paths below so a page that never went out doesn't lock
     // the user out of an immediate retry.
-    cooldowns.set(interaction.user.id, Date.now() + COOLDOWN_MS);
+    cooldown.start(interaction.user.id);
 
     const reason = interaction.options.getString("reason", true);
     const critical = interaction.options.getBoolean("critical") ?? false;
@@ -131,7 +121,7 @@ export default {
           response_body: body.slice(0, 200),
         });
         eventLog?.set({ outcome: "error", http_status: response.status });
-        cooldowns.delete(interaction.user.id); // page didn't go out — allow a retry
+        cooldown.clear(interaction.user.id); // page didn't go out — allow a retry
         await interaction.editReply({
           embeds: [errorEmbed(`Failed to page: ${response.status} ${response.statusText}`)],
         });
@@ -176,7 +166,7 @@ export default {
       eventLog?.set({ outcome: "error", reason: "fetch_error" });
       // Only roll back if the page never went out — a throw after Better Stack
       // confirmed delivery must not clear the cooldown.
-      if (!pageDelivered) cooldowns.delete(interaction.user.id);
+      if (!pageDelivered) cooldown.clear(interaction.user.id);
       await interaction.editReply({
         embeds: [errorEmbed("Failed to reach Better Stack.")],
       });
