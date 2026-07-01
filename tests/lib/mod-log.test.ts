@@ -39,7 +39,10 @@ function fakeGuild(fetchImpl: () => Promise<unknown>) {
 
 describe("sendModLog channel selection", () => {
   test("warns channel_not_text when the resolved channel is not a text channel", async () => {
-    await sendModLog(fakeGuild(async () => ({ type: 2 })), embed);
+    await sendModLog(
+      fakeGuild(async () => ({ type: 2 })),
+      embed,
+    );
 
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0]![0]).toMatchObject({
