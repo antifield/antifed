@@ -9,9 +9,6 @@ const testEnv = await createTestDb();
 await mock.module("~/db", () => ({ db: testEnv.db }));
 // mod-log is a no-op in tests (no TextChannel to send to).
 await mock.module("~/lib/mod-log", () => ({ sendModLog: mock(async () => undefined) }));
-// The dev gate on `clear` reads env-backed role ids; mock the narrow dep so the
-// dev-happy path is reachable without a full `~/env` mock.
-await mock.module("~/lib/role-gates", () => ({ hasDevRole: () => true }));
 
 const { infractions, users } = await import("../../src/db/schema");
 const { default: infractionCommand } = await import("../../src/commands/moderation/infraction");
@@ -49,9 +46,13 @@ function makeInteraction(opts: {
   target?: { id: string; username?: string };
   infractionId?: number;
   unbanImpl?: (id: string, reason: string) => Promise<void>;
+  isDev?: boolean;
 }) {
   const editReply = mock(async () => ({}));
   return {
+    // `member.roles.cache.has` drives the real hasDevRole gate on `clear`; `has`
+    // returns true for any role id when isDev, matching whatever role id env holds.
+    member: { roles: { cache: { has: () => opts.isDev === true } } },
     options: {
       getSubcommand: () => opts.sub,
       getUser: (_n: string, _req?: boolean) =>
@@ -222,7 +223,7 @@ describe("/infraction clear", () => {
       { userId: userRow.id, moderatorId: "mod-1", type: "kick", reason: "test", active: false },
     ]);
 
-    const interaction = makeInteraction({ sub: "clear", target: { id: "clear-1" } });
+    const interaction = makeInteraction({ sub: "clear", target: { id: "clear-1" }, isDev: true });
     await infractionCommand.execute(interaction);
 
     // Reports 2 (the active rows), not 3.
