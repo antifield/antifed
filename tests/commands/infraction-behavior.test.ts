@@ -46,9 +46,13 @@ function makeInteraction(opts: {
   target?: { id: string; username?: string };
   infractionId?: number;
   unbanImpl?: (id: string, reason: string) => Promise<void>;
+  isDev?: boolean;
 }) {
   const editReply = mock(async () => ({}));
   return {
+    // `member.roles.cache.has` drives the real hasDevRole gate on `clear`; `has`
+    // returns true for any role id when isDev, matching whatever role id env holds.
+    member: { roles: { cache: { has: () => opts.isDev === true } } },
     options: {
       getSubcommand: () => opts.sub,
       getUser: (_n: string, _req?: boolean) =>
@@ -203,5 +207,36 @@ describe("/infraction remove", () => {
       .where(eq(infractions.id, infractionRow.id))
       .all();
     expect(row?.active).toBe(false);
+  });
+});
+
+describe("/infraction clear", () => {
+  beforeEach(async () => {
+    await testEnv.client.batch(["DELETE FROM infractions", "DELETE FROM users"], "write");
+  });
+
+  test("counts only the rows it actually deactivated, not already-inactive ones", async () => {
+    // One user with 3 infractions: 2 active, 1 already inactive.
+    const { userRow } = await seed({ discordId: "clear-1", infraction: { type: "warn" } });
+    await testEnv.db.insert(infractions).values([
+      { userId: userRow.id, moderatorId: "mod-1", type: "warn", reason: "test", active: true },
+      { userId: userRow.id, moderatorId: "mod-1", type: "kick", reason: "test", active: false },
+    ]);
+
+    const interaction = makeInteraction({ sub: "clear", target: { id: "clear-1" }, isDev: true });
+    await infractionCommand.execute(interaction);
+
+    // Reports 2 (the active rows), not 3.
+    const replyArg = interaction.editReply.mock.calls.at(-1)![0];
+    expect(replyArg.embeds?.[0]?.data?.description).toMatch(/Deactivated \*\*2\*\*/);
+
+    // But every row ends up inactive.
+    const rows = await testEnv.db
+      .select()
+      .from(infractions)
+      .where(eq(infractions.userId, userRow.id))
+      .all();
+    expect(rows).toHaveLength(3);
+    expect(rows.every((r) => r.active === false)).toBe(true);
   });
 });

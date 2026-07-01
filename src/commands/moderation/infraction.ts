@@ -247,10 +247,13 @@ async function handleClear(interaction: ChatInputCommandInteraction) {
     )
     .all();
 
+  // Only flip currently-active rows so the reported count reflects what actually
+  // changed — matching all rows would include ones already deactivated and
+  // overstate the number cleared.
   const updated = await db
     .update(infractions)
     .set({ active: false })
-    .where(eq(infractions.userId, dbUser.id))
+    .where(and(eq(infractions.userId, dbUser.id), eq(infractions.active, true)))
     .returning();
 
   const unbanResult =
