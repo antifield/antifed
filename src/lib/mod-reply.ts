@@ -10,6 +10,12 @@ export async function replyAndLog(
   guild: Guild,
   embeds: { reply: EmbedBuilder; log?: EmbedBuilder },
 ): Promise<void> {
-  await interaction.editReply({ embeds: [embeds.reply] });
-  await sendModLog(guild, embeds.log ?? embeds.reply);
+  // The mod-log is the durable audit record, so it must fire even when the
+  // reply fails (e.g. an expired interaction token after a slow action). The
+  // reply error still propagates; sendModLog catches its own errors internally.
+  try {
+    await interaction.editReply({ embeds: [embeds.reply] });
+  } finally {
+    await sendModLog(guild, embeds.log ?? embeds.reply);
+  }
 }
