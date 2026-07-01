@@ -212,3 +212,83 @@ describe("/user info — infraction button reflects the full record", () => {
     expect(button.disabled).toBe(true);
   });
 });
+
+function makeAuditInteraction(staffId: string, staffUsername = "staffer") {
+  return {
+    id: "int-audit",
+    options: {
+      getSubcommand: () => "audit",
+      getUser: (_n: string, _req?: boolean) => ({
+        id: staffId,
+        username: staffUsername,
+        displayAvatarURL: () => "https://example.com/s.png",
+      }),
+    },
+    user: { id: "mod-1", username: "mod", displayAvatarURL: () => "https://example.com/m.png" },
+    guild: { members: { fetch: mock(async () => null) } },
+    guildId: "guild-1",
+    channelId: "chan-1",
+    deferReply: mock(async () => undefined),
+    editReply: mock(async (_arg?: unknown) => ({})),
+    reply: mock(async () => undefined),
+  } as any;
+}
+
+describe("/user audit", () => {
+  beforeEach(async () => {
+    await testEnv.client.batch(
+      ["DELETE FROM notes", "DELETE FROM infractions", "DELETE FROM users"],
+      "write",
+    );
+  });
+
+  test("reports no actions for a staffer with none", async () => {
+    const interaction = makeAuditInteraction("staff-1");
+    await userCommand.execute(interaction);
+    expect(extractDescription(interaction)).toMatch(/No moderation actions found/i);
+  });
+
+  test("aggregates infractions and notes with the summary counts", async () => {
+    await seedUser("victim-1");
+    await seedInfraction({
+      discordId: "victim-1",
+      type: "ban",
+      active: true,
+      moderatorId: "staff-2",
+    });
+    await seedNote({ discordId: "victim-1", content: "a staff note", authorId: "staff-2" });
+
+    const interaction = makeAuditInteraction("staff-2");
+    await userCommand.execute(interaction);
+
+    const desc = extractDescription(interaction);
+    expect(desc).toMatch(/\*\*1\*\* infractions issued/);
+    expect(desc).toMatch(/\*\*1\*\* notes written/);
+    expect(desc).toContain("**BAN**");
+    expect(desc).toContain("**NOTE**");
+  });
+
+  // Note: the resolveDiscordId "unknown" fallback (user.ts) is unreachable under
+  // the real schema — infractions.user_id is a NOT NULL FK with ON DELETE
+  // CASCADE, so a row can never reference a missing/deleted user. Left untested
+  // rather than subverting foreign_keys to fabricate an orphan row.
+
+  test("truncates a detail longer than 80 characters", async () => {
+    await seedUser("victim-4");
+    const u = await userByDiscordId("victim-4");
+    await testEnv.db.insert(infractions).values({
+      userId: u.id,
+      moderatorId: "staff-4",
+      type: "warn",
+      reason: "A".repeat(100),
+      active: true,
+    });
+
+    const interaction = makeAuditInteraction("staff-4");
+    await userCommand.execute(interaction);
+
+    const desc = extractDescription(interaction);
+    expect(desc).toContain(`${"A".repeat(80)}...`);
+    expect(desc).not.toContain("A".repeat(81));
+  });
+});
