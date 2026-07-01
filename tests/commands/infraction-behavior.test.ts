@@ -47,6 +47,7 @@ function makeInteraction(opts: {
   infractionId?: number;
   unbanImpl?: (id: string, reason: string) => Promise<void>;
   isDev?: boolean;
+  type?: string;
 }) {
   const editReply = mock(async () => ({}));
   return {
@@ -63,7 +64,7 @@ function makeInteraction(opts: {
               displayAvatarURL: () => "https://example.com/a.png",
             }
           : null,
-      getString: (_n: string, _req?: boolean) => null,
+      getString: (name: string, _req?: boolean) => (name === "type" ? (opts.type ?? null) : null),
       getInteger: (_n: string, _req?: boolean) => opts.infractionId ?? null,
     },
     user: {
@@ -238,5 +239,53 @@ describe("/infraction clear", () => {
       .all();
     expect(rows).toHaveLength(3);
     expect(rows.every((r) => r.active === false)).toBe(true);
+  });
+});
+
+describe("/infraction check", () => {
+  beforeEach(async () => {
+    await testEnv.client.batch(["DELETE FROM infractions", "DELETE FROM users"], "write");
+  });
+
+  function lastEmbedDescription(interaction: ReturnType<typeof makeInteraction>) {
+    return interaction.editReply.mock.calls.at(-1)![0].embeds[0].data.description;
+  }
+
+  test("reports no infractions for an unknown user", async () => {
+    const interaction = makeInteraction({ sub: "check", target: { id: "ghost" } });
+    await infractionCommand.execute(interaction);
+    expect(lastEmbedDescription(interaction)).toMatch(/No infractions found/i);
+  });
+
+  test("lists a user's infractions on a single page", async () => {
+    await seed({ discordId: "chk-1", infraction: { type: "warn" } });
+    const interaction = makeInteraction({ sub: "check", target: { id: "chk-1" } });
+    await infractionCommand.execute(interaction);
+    expect(lastEmbedDescription(interaction)).toContain("**WARN**");
+  });
+
+  test("filters by infraction type", async () => {
+    const { userRow } = await seed({ discordId: "chk-2", infraction: { type: "warn" } });
+    await testEnv.db.insert(infractions).values({
+      userId: userRow.id,
+      moderatorId: "mod-1",
+      type: "ban",
+      reason: "test",
+      active: true,
+    });
+
+    const interaction = makeInteraction({ sub: "check", target: { id: "chk-2" }, type: "warn" });
+    await infractionCommand.execute(interaction);
+
+    const desc = lastEmbedDescription(interaction);
+    expect(desc).toContain("**WARN**");
+    expect(desc).not.toContain("**BAN**");
+  });
+
+  test("reports no matching infractions when the type filter excludes all", async () => {
+    await seed({ discordId: "chk-3", infraction: { type: "ban" } });
+    const interaction = makeInteraction({ sub: "check", target: { id: "chk-3" }, type: "warn" });
+    await infractionCommand.execute(interaction);
+    expect(lastEmbedDescription(interaction)).toMatch(/No warn infractions found/i);
   });
 });
