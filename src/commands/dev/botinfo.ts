@@ -61,7 +61,7 @@ export default {
   },
 } satisfies Command;
 
-function formatUptime(ms: number): string {
+export function formatUptime(ms: number): string {
   const s = Math.floor(ms / 1000) % 60;
   const m = Math.floor(ms / 60000) % 60;
   const h = Math.floor(ms / 3600000) % 24;
