@@ -23,7 +23,7 @@ import { replyAndLog } from "~/lib/mod-reply";
 import type { Command } from "~/types";
 
 const SILENT_DESC = "Hide the confirmation from the channel (mod-log still fires)";
-const NO_DM_DESC = "Do not DM the user about this action";
+const DM_DESC = "DM the user about this action (default: true)";
 const DM_SKIPPED_MESSAGE = "\n*DM skipped by moderator.*";
 
 type DmStatus = "sent" | "failed" | "skipped";
@@ -42,7 +42,7 @@ export default {
         .addStringOption((o) =>
           o.setName("reason").setDescription("Reason for the warning").setRequired(true),
         )
-        .addBooleanOption((o) => o.setName("no_dm").setDescription(NO_DM_DESC))
+        .addBooleanOption((o) => o.setName("dm").setDescription(DM_DESC))
         .addBooleanOption((o) => o.setName("silent").setDescription(SILENT_DESC)),
     )
     .addSubcommand((sub) =>
@@ -55,7 +55,7 @@ export default {
         .addStringOption((o) =>
           o.setName("reason").setDescription("Reason for the kick").setRequired(true),
         )
-        .addBooleanOption((o) => o.setName("no_dm").setDescription(NO_DM_DESC))
+        .addBooleanOption((o) => o.setName("dm").setDescription(DM_DESC))
         .addBooleanOption((o) => o.setName("silent").setDescription(SILENT_DESC)),
     )
     .addSubcommand((sub) =>
@@ -68,7 +68,7 @@ export default {
         .addStringOption((o) =>
           o.setName("reason").setDescription("Reason for the softban").setRequired(true),
         )
-        .addBooleanOption((o) => o.setName("no_dm").setDescription(NO_DM_DESC))
+        .addBooleanOption((o) => o.setName("dm").setDescription(DM_DESC))
         .addBooleanOption((o) => o.setName("silent").setDescription(SILENT_DESC)),
     )
     .addSubcommand((sub) =>
@@ -89,11 +89,9 @@ export default {
         .addBooleanOption((o) =>
           o
             .setName("can_appeal")
-            .setDescription(
-              "Allow an appeal by email (default: false; requires no_dm to be false)",
-            ),
+            .setDescription("Allow an appeal by email (default: false; requires dm to be true)"),
         )
-        .addBooleanOption((o) => o.setName("no_dm").setDescription(NO_DM_DESC))
+        .addBooleanOption((o) => o.setName("dm").setDescription(DM_DESC))
         .addBooleanOption((o) => o.setName("silent").setDescription(SILENT_DESC)),
     )
     .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers),
@@ -122,7 +120,7 @@ async function sendModerationDm(params: {
   footerText?: string;
 }): Promise<DmStatus> {
   const { interaction, targetUser, title, reason, color, guild, footerText } = params;
-  if (interaction.options.getBoolean("no_dm") ?? false) return "skipped";
+  if (interaction.options.getBoolean("dm") === false) return "skipped";
   const embed = dmEmbed({
     title,
     description: reason,
@@ -422,11 +420,11 @@ async function handleBan(interaction: ChatInputCommandInteraction) {
   await deferFor(interaction, silent);
 
   const canAppeal = interaction.options.getBoolean("can_appeal") ?? false;
-  if (canAppeal && interaction.options.getBoolean("no_dm")) {
+  if (canAppeal && interaction.options.getBoolean("dm") === false) {
     await interaction.editReply({
       embeds: [
         errorEmbed(
-          "Appealable bans require a DM. Set no_dm to false or omit it, then try again. No ban was performed.",
+          "Appealable bans require a DM. Set dm to true or omit it, then try again. No ban was performed.",
         ),
       ],
     });

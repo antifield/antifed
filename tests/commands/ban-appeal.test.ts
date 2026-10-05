@@ -28,7 +28,7 @@ beforeEach(async () => {
   sendModLog.mockClear();
 });
 
-function makeBan(opts: { canAppeal?: boolean; noDm?: boolean; dmFails?: boolean } = {}) {
+function makeBan(opts: { canAppeal?: boolean; dm?: boolean; dmFails?: boolean } = {}) {
   const order: string[] = [];
   const target = {
     id: "target-1",
@@ -47,7 +47,7 @@ function makeBan(opts: { canAppeal?: boolean; noDm?: boolean; dmFails?: boolean 
       getInteger: () => null,
       getBoolean: (name: string) => {
         if (name === "can_appeal") return opts.canAppeal ?? null;
-        if (name === "no_dm") return opts.noDm ?? null;
+        if (name === "dm") return opts.dm ?? null;
         return null;
       },
     },
@@ -106,30 +106,27 @@ describe("/mod ban appeals", () => {
     expect(rows[0]?.type).toBe("ban");
   });
 
-  test.each([undefined, false])(
-    "DMs appeal instructions before banning with no_dm=%s",
-    async (noDm) => {
-      const { target, interaction, order } = makeBan({ canAppeal: true, noDm });
-
-      await modCommand.execute(interaction as unknown as ChatInputCommandInteraction);
-
-      expect(target.send.mock.calls[0]?.[0].embeds[0]?.toJSON().footer?.text).toBe(
-        "Test Guild • You can appeal this ban by emailing marcel@antifield.com.",
-      );
-      expect(order).toEqual(["dm", "ban"]);
-      expect(lastReplyDescription(interaction.editReply)).not.toContain("DM skipped");
-      const rows = await testEnv.db.select().from(infractions).all();
-      expect(rows).toHaveLength(1);
-      expect(rows[0]?.reason).toBe("Rule violation");
-    },
-  );
-
-  test("rejects can_appeal with no_dm before any moderation side effects", async () => {
-    const { target, interaction } = makeBan({ canAppeal: true, noDm: true });
+  test.each([undefined, true])("DMs appeal instructions before banning with dm=%s", async (dm) => {
+    const { target, interaction, order } = makeBan({ canAppeal: true, dm });
 
     await modCommand.execute(interaction as unknown as ChatInputCommandInteraction);
 
-    expect(lastReplyDescription(interaction.editReply)).toContain("Set no_dm to false or omit it");
+    expect(target.send.mock.calls[0]?.[0].embeds[0]?.toJSON().footer?.text).toBe(
+      "Test Guild • You can appeal this ban by emailing marcel@antifield.com.",
+    );
+    expect(order).toEqual(["dm", "ban"]);
+    expect(lastReplyDescription(interaction.editReply)).not.toContain("DM skipped");
+    const rows = await testEnv.db.select().from(infractions).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.reason).toBe("Rule violation");
+  });
+
+  test("rejects can_appeal with dm=false before any moderation side effects", async () => {
+    const { target, interaction } = makeBan({ canAppeal: true, dm: false });
+
+    await modCommand.execute(interaction as unknown as ChatInputCommandInteraction);
+
+    expect(lastReplyDescription(interaction.editReply)).toContain("Set dm to true or omit it");
     expect(target.send).not.toHaveBeenCalled();
     expect(interaction.guild.members.fetch).not.toHaveBeenCalled();
     expect(interaction.guild.members.ban).not.toHaveBeenCalled();
@@ -138,9 +135,9 @@ describe("/mod ban appeals", () => {
   });
 
   test.each([undefined, false])(
-    "allows no_dm for a non-appealable ban with can_appeal=%s",
+    "allows dm=false for a non-appealable ban with can_appeal=%s",
     async (canAppeal) => {
-      const { target, interaction, order } = makeBan({ canAppeal, noDm: true });
+      const { target, interaction, order } = makeBan({ canAppeal, dm: false });
 
       await modCommand.execute(interaction as unknown as ChatInputCommandInteraction);
 

@@ -8,12 +8,12 @@ This bot does not include length-wise bans. We give all bans permanently with li
 
 ### `/mod` - Moderation actions
 
-| Subcommand                                                                   | Description                             | Permission       |
-| ---------------------------------------------------------------------------- | --------------------------------------- | ---------------- |
-| `/mod warn @user [reason] [no_dm?] [silent?]`                                | Warn a user, DMs them the reason        | Moderate Members |
-| `/mod kick @user [reason] [no_dm?] [silent?]`                                | Kick a user from the server             | Moderate Members |
-| `/mod softban @user [reason] [no_dm?] [silent?]`                             | Ban + immediate unban to purge messages | Moderate Members |
-| `/mod ban @user [reason] [delete_messages] [can_appeal?] [no_dm?] [silent?]` | Ban a user, DMs them before banning     | Moderate Members |
+| Subcommand                                                                | Description                             | Permission       |
+| ------------------------------------------------------------------------- | --------------------------------------- | ---------------- |
+| `/mod warn @user [reason] [dm?] [silent?]`                                | Warn a user, DMs them the reason        | Moderate Members |
+| `/mod kick @user [reason] [dm?] [silent?]`                                | Kick a user from the server             | Moderate Members |
+| `/mod softban @user [reason] [dm?] [silent?]`                             | Ban + immediate unban to purge messages | Moderate Members |
+| `/mod ban @user [reason] [delete_messages] [can_appeal?] [dm?] [silent?]` | Ban a user, DMs them before banning     | Moderate Members |
 
 ### `/infraction` - Infraction management
 
@@ -46,9 +46,9 @@ This bot does not include length-wise bans. We give all bans permanently with li
 | `/page [reason] [critical?]` | Page via Better Stack                      | Page role  |
 | `/botinfo`                   | Bot diagnostics (uptime, memory, db stats) | Dev only   |
 
-Reason is required for all `/mod` actions and is DM'd to the user (pass `no_dm: true` to skip the DM). DM failure is shown in the confirmation embed. Confirmation is public in-channel by default; pass `silent: true` to keep it ephemeral. The mod-log always receives the full action regardless. Notes and infractions never expire, and are removed only manually.
+Reason is required for all `/mod` actions and is DM'd to the user (`dm` defaults to `true`; pass `dm: false` to skip the DM). DM failure is shown in the confirmation embed. Confirmation is public in-channel by default; pass `silent: true` to keep it ephemeral. The mod-log always receives the full action regardless. Notes and infractions never expire, and are removed only manually.
 
-For `/mod ban`, `can_appeal` defaults to `false`, and the DM footer says "This ban is not appealable." Set `can_appeal: true` to instead tell the user they can appeal by emailing `marcel@antifield.com`. Combining `can_appeal: true` with `no_dm: true` is rejected without banning. If Discord cannot deliver the DM, the ban still proceeds and the delivery failure is shown in the confirmation and mod-log.
+For `/mod ban`, `can_appeal` defaults to `false`, and the DM footer says "This ban is not appealable." Set `can_appeal: true` to instead tell the user they can appeal by emailing `marcel@antifield.com`. Combining `can_appeal: true` with `dm: false` is rejected without banning. If Discord cannot deliver the DM, the ban still proceeds and the delivery failure is shown in the confirmation and mod-log.
 
 ## Automated behavior
 
