@@ -86,6 +86,13 @@ export default {
             .setMinValue(0)
             .setMaxValue(7),
         )
+        .addBooleanOption((o) =>
+          o
+            .setName("can_appeal")
+            .setDescription(
+              "Allow an appeal by email (default: false; requires no_dm to be false)",
+            ),
+        )
         .addBooleanOption((o) => o.setName("no_dm").setDescription(NO_DM_DESC))
         .addBooleanOption((o) => o.setName("silent").setDescription(SILENT_DESC)),
     )
@@ -112,20 +119,18 @@ async function sendModerationDm(params: {
   reason: string;
   color: number;
   guild: Guild;
+  footerText?: string;
 }): Promise<DmStatus> {
-  const { interaction, targetUser, title, reason, color, guild } = params;
+  const { interaction, targetUser, title, reason, color, guild, footerText } = params;
   if (interaction.options.getBoolean("no_dm") ?? false) return "skipped";
-  return (await trySendDm(
-    targetUser,
-    dmEmbed({
-      title,
-      description: reason,
-      color,
-      serverName: guild.name,
-    }),
-  ))
-    ? "sent"
-    : "failed";
+  const embed = dmEmbed({
+    title,
+    description: reason,
+    color,
+    serverName: guild.name,
+  });
+  if (footerText) embed.setFooter({ text: `${guild.name} • ${footerText}` });
+  return (await trySendDm(targetUser, embed)) ? "sent" : "failed";
 }
 
 function addDmStatus(description: string[], dmStatus: DmStatus) {
@@ -416,6 +421,18 @@ async function handleBan(interaction: ChatInputCommandInteraction) {
   const silent = interaction.options.getBoolean("silent") ?? false;
   await deferFor(interaction, silent);
 
+  const canAppeal = interaction.options.getBoolean("can_appeal") ?? false;
+  if (canAppeal && interaction.options.getBoolean("no_dm")) {
+    await interaction.editReply({
+      embeds: [
+        errorEmbed(
+          "Appealable bans require a DM. Set no_dm to false or omit it, then try again. No ban was performed.",
+        ),
+      ],
+    });
+    return;
+  }
+
   const targetUser = interaction.options.getUser("user", true);
   const reason = interaction.options.getString("reason", true);
   const deleteMessages = interaction.options.getInteger("delete_messages") ?? 0;
@@ -426,6 +443,7 @@ async function handleBan(interaction: ChatInputCommandInteraction) {
   useInteractionLog()?.set({
     target: { id: targetUser.id, in_guild: targetMember !== null },
     delete_messages_days: deleteMessages,
+    can_appeal: canAppeal,
   });
 
   if (targetMember) {
@@ -448,6 +466,9 @@ async function handleBan(interaction: ChatInputCommandInteraction) {
     reason,
     color: Colors.Ban,
     guild,
+    footerText: canAppeal
+      ? "You can appeal this ban by emailing marcel@antifield.com."
+      : "This ban is not appealable.",
   });
 
   try {
