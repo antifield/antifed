@@ -56,12 +56,13 @@ describe("/mod command", () => {
     }
   });
 
-  test("every subcommand exposes an optional no_dm flag", () => {
+  test("every subcommand exposes an optional dm flag instead of no_dm", () => {
     for (const name of ["warn", "kick", "softban", "ban"]) {
       const sub = findSub(modCommand.data.toJSON(), name);
-      const noDm = (sub.options ?? []).find((o) => o.name === "no_dm");
-      expect(noDm).toBeDefined();
-      expect(noDm?.required).toBeFalsy();
+      const dm = (sub.options ?? []).find((o) => o.name === "dm");
+      expect(dm).toBeDefined();
+      expect(dm?.required).toBeFalsy();
+      expect((sub.options ?? []).some((o) => o.name === "no_dm")).toBe(false);
     }
   });
 });

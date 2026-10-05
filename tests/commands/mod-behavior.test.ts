@@ -61,7 +61,7 @@ function makeInteraction(opts: {
   banImpl?: (user: { id: string }, options?: unknown) => Promise<void>;
   unbanImpl?: (id: string, reason?: string) => Promise<void>;
   kickImpl?: () => Promise<void>;
-  noDm?: boolean;
+  dm?: boolean;
 }) {
   const moderatorId = opts.moderatorId ?? "mod-1";
   const editReply = mock(async (_payload: ReplyPayload) => ({}));
@@ -91,11 +91,7 @@ function makeInteraction(opts: {
         getInteger: (name: string, _req?: boolean) =>
           name === "delete_messages" ? (opts.deleteMessages ?? null) : null,
         getBoolean: (name: string, _req?: boolean) =>
-          name === "silent"
-            ? (opts.silent ?? false)
-            : name === "no_dm"
-              ? (opts.noDm ?? false)
-              : null,
+          name === "silent" ? (opts.silent ?? false) : name === "dm" ? (opts.dm ?? null) : null,
       },
       user: {
         id: moderatorId,
@@ -228,7 +224,7 @@ describe("/mod ban", () => {
       targetInGuild: true,
       targetRolePosition: 1,
       moderatorPosition: 10,
-      noDm: true,
+      dm: false,
     });
 
     await modCommand.execute(interaction as any);
@@ -395,6 +391,44 @@ function lastModLogEmbedData(): { footer?: { text?: string } } | undefined {
     sendModLog.mock.calls.at(-1)?.[1] as { data?: { footer?: { text?: string } } } | undefined
   )?.data;
 }
+
+describe.each(["warn", "kick", "softban", "ban"])("/mod %s DM option", (sub) => {
+  test.each([undefined, true])("sends a DM with dm=%s", async (dm) => {
+    const target = makeUser();
+    const { interaction } = makeInteraction({ sub, target, targetInGuild: true, dm });
+
+    await modCommand.execute(interaction as any);
+
+    expect(target.send).toHaveBeenCalledTimes(1);
+    expect(lastReplyDescription(interaction.editReply)).not.toContain("DM skipped");
+    const rows = await testEnv.db.select().from(infractions).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.type).toBe(sub);
+  });
+
+  test("skips the DM with dm=false but still performs the moderation action", async () => {
+    const target = makeUser();
+    const { interaction, targetMember } = makeInteraction({
+      sub,
+      target,
+      targetInGuild: true,
+      dm: false,
+    });
+
+    await modCommand.execute(interaction as any);
+
+    expect(target.send).not.toHaveBeenCalled();
+    expect(lastReplyDescription(interaction.editReply)).toContain("DM skipped");
+    if (sub === "kick") expect(targetMember?.kick).toHaveBeenCalledTimes(1);
+    if (sub === "ban" || sub === "softban") {
+      expect(interaction.guild.members.ban).toHaveBeenCalledTimes(1);
+    }
+    if (sub === "softban") expect(interaction.guild.members.unban).toHaveBeenCalledTimes(1);
+    const rows = await testEnv.db.select().from(infractions).all();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.type).toBe(sub);
+  });
+});
 
 describe("/mod silent mode", () => {
   test("public action hides the moderator in the channel reply but logs it with attribution", async () => {
